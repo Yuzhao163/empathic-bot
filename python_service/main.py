@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
-from langchain.schema import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 # ============================================================================
 # App Setup
@@ -26,8 +26,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# MiniMax API 配置
+MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "")
+MINIMAX_BASE_URL = os.getenv("MINIMAX_BASE_URL", "https://api.minimaxi.com/anthropic")
+LLM_MODEL = os.getenv("LLM_MODEL", "MiniMax-Text-01")
+
 llm = ChatOpenAI(
-    model=os.getenv("LLM_MODEL", "gpt-4o"),
+    model=LLM_MODEL,
+    openai_api_key=MINIMAX_API_KEY,
+    openai_api_base=MINIMAX_BASE_URL,
     temperature=0.8,
     streaming=True,
 )
