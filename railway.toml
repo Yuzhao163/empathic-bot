@@ -1,0 +1,20 @@
+[railway]
+id = "empathic-bot"
+
+[deploy]
+region = "us-east"
+runtime = "image"
+
+# 后端服务（Go gateway）
+[[services]]
+name = "gateway"
+path = "gateway"
+startCommand = "go run main.go"
+environmentVariables = { REDIS_URL = "" }
+
+# Healthcheck
+[healthCheck]
+path = "/health"
+
+# 前端（Vercel 单独托管，这里只跑后端）
+# 前端部署到 Vercel，后端/redis/python_service 跑 Railway

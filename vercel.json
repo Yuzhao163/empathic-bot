@@ -1,0 +1,15 @@
+{
+  "buildCommand": "npm install && npm run build",
+  "installCommand": "npm install",
+  "framework": "vite",
+  "devCommand": "npm run dev",
+  "regions": ["iad1"],
+  "env": {
+    "VITE_GATEWAY_URL": "@gateway-url"
+  },
+  "github": {
+    "enabled": true,
+    "autoAlias": true,
+    "silent": true
+  }
+}
