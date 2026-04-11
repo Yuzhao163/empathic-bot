@@ -115,7 +115,7 @@ function getEmotionTrend(messages: Message[]): { index: number; value: number; e
 // API — 参考 Gradio SSE 流式接口
 // ============================================================================
 
-const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8080'
+const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:8001'
 
 async function sendMessage(sessionId: string, message: string, history: Message[]) {
   const { emotion, prob } = detectEmotion(message)
@@ -138,14 +138,14 @@ async function sendMessage(sessionId: string, message: string, history: Message[
   }))
 
   // 调用后端（流式）
-  const res = await fetch(`${GATEWAY_URL}/api/chat`, {
+  const res = await fetch(`${GATEWAY_URL}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      session_id: sessionId,
       message,
-      emotion,
       context,
+      emotion,
+      emotion_prob: prob,
     }),
   })
 
@@ -295,7 +295,7 @@ export default function App() {
       const assistantMsg: Message = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: result.message || result.text || '我在这里，愿意听你说。',
+        content: result.text || result.message || '我在这里，愿意听你说。',
         emotion: result.emotion || emotion,
         emotionProb: result.emotion_prob || result.emotionProb || 0.8,
         timestamp: Date.now(),
