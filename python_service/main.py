@@ -10,8 +10,21 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from langchain_openai import ChatOpenAI
+from openai import OpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
+
+# ============================================================================
+# OpenAI Compatible Client for MiniMax
+# ============================================================================
+
+MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "")
+MINIMAX_BASE_URL = os.getenv("MINIMAX_BASE_URL", "https://api.minimaxi.com/v1")
+LLM_MODEL = os.getenv("LLM_MODEL", "MiniMax-M2.7")
+
+openai_client = OpenAI(
+    api_key=MINIMAX_API_KEY,
+    base_url=MINIMAX_BASE_URL,
+)
 
 # ============================================================================
 # App Setup
@@ -24,19 +37,6 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
-)
-
-# MiniMax API 配置
-MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "")
-MINIMAX_BASE_URL = os.getenv("MINIMAX_BASE_URL", "https://api.minimaxi.com/anthropic")
-LLM_MODEL = os.getenv("LLM_MODEL", "MiniMax-Text-01")
-
-llm = ChatOpenAI(
-    model=LLM_MODEL,
-    openai_api_key=MINIMAX_API_KEY,
-    openai_api_base=MINIMAX_BASE_URL,
-    temperature=0.8,
-    streaming=True,
 )
 
 # ============================================================================
@@ -283,12 +283,20 @@ async def chat(req: ChatRequest):
         message=req.message,
     )
 
-    messages = [SystemMessage(content=prompt), HumanMessage(content=req.message)]
-
     try:
-        ai_msg = llm(messages)
-        text = ai_msg.content
-    except Exception:
+        response = openai_client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": req.message}
+            ],
+            temperature=0.8,
+        )
+        text = response.choices[0].message.content
+    except Exception as e:
+        import traceback
+        print(f"[LLM Error] {e}")
+        traceback.print_exc()
         # LLM 调用失败 → 用本地同理心回复
         text = get_empathy_response(emotion)
 
@@ -327,14 +335,21 @@ async def chat_stream(req: ChatRequest):
         message=req.message,
     )
 
-    messages = [SystemMessage(content=prompt), HumanMessage(content=req.message)]
+    messages = [{"role": "system", "content": prompt}, {"role": "user", "content": req.message}]
 
     async def stream():
         try:
-            async for chunk in llm.astream(messages):
-                if chunk.content:
-                    yield f"data: {json.dumps({'token': chunk.content})}\n\n"
-        except Exception:
+            stream_response = openai_client.chat.completions.create(
+                model=LLM_MODEL,
+                messages=messages,
+                temperature=0.8,
+                stream=True,
+            )
+            for chunk in stream_response:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield f"data: {json.dumps({'token': chunk.choices[0].delta.content})}\n\n"
+        except Exception as e:
+            print(f"[Stream Error] {e}")
             # Fallback to empathy response
             fallback = get_empathy_response(emotion)
             for char in fallback:
