@@ -7,7 +7,7 @@ from pathlib import Path
 from dataclasses import dataclass, field, asdict
 
 try:
-    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
     from apscheduler.triggers.date import DateTrigger
     from apscheduler.triggers.cron import CronTrigger
     from apscheduler.triggers.interval import IntervalTrigger
@@ -40,14 +40,14 @@ class SchedulerService:
         self._tasks = {}
         self._sched = None
         if HAS_APS:
-            self._sched = BackgroundScheduler(timezone="Asia/Shanghai")
+            self._sched = AsyncIOScheduler(timezone="Asia/Shanghai")
 
-    def start(self):
+    async def start(self):
         if self._sched and not self._sched.running:
             self._sched.start()
         self._reload()
 
-    def stop(self):
+    async def stop(self):
         if self._sched and self._sched.running:
             self._sched.shutdown()
 
@@ -134,11 +134,9 @@ class SchedulerService:
         except Exception as exc:
             print(f"[Scheduler] sched error {task.task_id}: {exc}")
 
-    def _run_wrapper(self, task_id):
+    async def _run_wrapper(self, task_id: str):
         try:
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(self._execute(task_id))
-            loop.close()
+            await self._execute(task_id)
         except Exception as exc:
             print(f"[Scheduler] exec error {task_id}: {exc}")
 

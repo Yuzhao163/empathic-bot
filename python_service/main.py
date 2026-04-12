@@ -7,6 +7,7 @@ import json
 import time
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request, HTTPException
@@ -28,6 +29,8 @@ from auth import (
     revoke_session,
     create_magic_link,
     verify_magic_link,
+    get_account_by_email,
+    link_anonymous_to_account,
 )
 from tool_registry import registry, ToolDef, MCPServer, SkillDef
 from user_profile import (
@@ -203,7 +206,15 @@ def get_empathy_response(emotion: str) -> str:
 # App
 # ============================================================================
 
-app = FastAPI(title="EmpathicBot LLM Service")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    await scheduler_service.start()
+    yield
+    # Shutdown
+    await scheduler_service.stop()
+
+app = FastAPI(title="EmpathicBot LLM Service", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -696,16 +707,6 @@ async def get_user_suggestions(user_id: str, emotion: str = "neutral"):
 # =============================================================================
 
 
-@app.on_event("startup")
-def start_scheduler():
-    scheduler_service.start()
-
-
-@app.on_event("shutdown")
-def stop_scheduler():
-    scheduler_service.stop()
-
-
 @app.get("/schedules")
 async def list_schedules(user_id: str = None):
     """列出定时任务"""
@@ -782,10 +783,16 @@ async def update_schedule(task_id: str, req: Request):
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return {"task_id": task.task_id}
+
+
+@app.delete("/memory/{user_id}")
 async def delete_user_memory(user_id: str, level: str = "all"):
     """删除用户指定层级的记忆和画像"""
     result = delete_memory_for_user(user_id, level)
     return result
+
+
+@app.post("/auth/logout")
 async def auth_logout(token: str = None):
     """登出"""
     if token:

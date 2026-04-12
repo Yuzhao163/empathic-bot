@@ -14,20 +14,24 @@ from typing import Optional
 from dataclasses import dataclass, asdict, field
 from concurrent.futures import ThreadPoolExecutor
 
-import redis
-
-# ============================================================================
-# Config
-# ============================================================================
-
-REDIS_URL = os.getenv("REDIS_URL", "localhost:6379")
-MEMORY_DIR = Path(os.getenv("MEMORY_DIR", "./memory/long_term"))
-LONG_TERM_MEMORY_TTL = int(os.getenv("LONG_TERM_MEMORY_TTL", "86400"))  # 24h in Redis
-
-if REDIS_URL.startswith("redis://"):
-    REDIS_URL = REDIS_URL[9:]
-
-rdb = redis.Redis(host=REDIS_URL.split(":")[0], port=int(REDIS_URL.split(":")[-1]), db=0, decode_responses=True)
+try:
+    import redis as redis_lib
+    _REDIS_URL = os.getenv("REDIS_URL", "localhost:6379")
+    if _REDIS_URL.startswith("redis://"):
+        _REDIS_URL = _REDIS_URL[9:]
+    _r = redis_lib.Redis(
+        host=_REDIS_URL.split(":")[0],
+        port=int(_REDIS_URL.split(":")[-1]),
+        db=0,
+        decode_responses=True,
+    )
+    _r.ping()
+    rdb = _r
+    del _r, _REDIS_URL
+except Exception:
+    print("[Memory] WARNING: Redis unavailable — short-term memory disabled")
+    rdb = None
+    rdb = None
 
 executor = ThreadPoolExecutor(max_workers=3)
 
@@ -224,8 +228,8 @@ class MemoryManager:
 
     def extract_and_store_facts(self, summary: str) -> int:
         """
-        从摘要/对话中提取关键事实存入长记忆
-        由LLM判断哪些信息值得持久化
+        从摘要中提取关键事实存入长记忆。
+        直接在线程池中同步调用 LLM，不走 asyncio event loop。
         """
         extraction_prompt = (
             "从以下对话摘要中提取值得长期记住的用户信息，"
@@ -234,8 +238,6 @@ class MemoryManager:
             "category可选值：emotion_pattern / personal_fact / preference / goal。"
             "只返回JSON，不要其他文字。\n\n摘要：\n" + summary
         )
-        # 同步LLM调用在线程池
-        loop = asyncio.get_event_loop()
         try:
             from main import openai_client, LLM_MODEL
             def _call():
@@ -246,22 +248,25 @@ class MemoryManager:
                     max_tokens=800,
                 )
                 return resp.choices[0].message.content
-            raw = loop.run_in_executor(executor, _call)
-            if raw:
-                raw_text = raw if isinstance(raw, str) else raw.result() if hasattr(raw, 'result') else str(raw)
-                import re
-                json_match = re.search(r'\[[\s\S]*\]', raw_text)
-                if json_match:
-                    items = json.loads(json_match.group())
-                    for item in items:
-                        self.add_long_term_fact(
-                            category=item.get("category", "personal_fact"),
-                            content=item.get("content", ""),
-                            confidence=item.get("confidence", 0.7),
-                        )
-                    return len(items)
-        except Exception as e:
-            print(f"[Memory] fact extraction failed: {e}")
+            # Run synchronously in executor (summarize_and_evict already runs in executor)
+            import concurrent.futures
+            future = executor.submit(_call)
+            raw_text = future.result(timeout=15)
+            import re
+            json_match = re.search(r"\[[\s\S]*\]", raw_text or "")
+            if json_match:
+                items = json.loads(json_match.group())
+                count = 0
+                for item in items:
+                    self.add_long_term_fact(
+                        category=item.get("category", "personal_fact"),
+                        content=item.get("content", ""),
+                        confidence=item.get("confidence", 0.7),
+                    )
+                    count += 1
+                return count
+        except Exception as exc:
+            print(f"[Memory] fact extraction failed: {exc}")
         return 0
 
     # --------------------------------------------------------------------------
