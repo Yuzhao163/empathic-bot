@@ -6,7 +6,6 @@ import os
 import json
 import time
 import asyncio
-import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -28,18 +27,27 @@ MINIMAX_BASE_URL = os.getenv("MINIMAX_BASE_URL", "https://api.minimaxi.com/v1")
 LLM_MODEL = os.getenv("LLM_MODEL", "MiniMax-M2.7")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.8"))
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "1000"))
-MAX_CONTEXT_TOKENS = int(os.getenv("MAX_CONTEXT_TOKENS", "6000"))  # ~80% of typical 8k ctx
-ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",") if o.strip()]
+MAX_CONTEXT_TOKENS = int(os.getenv("MAX_CONTEXT_TOKENS", "6000"))
+ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+    if o.strip()
+]
 
-openai_client = OpenAI(api_key=MINIMAX_API_KEY, base_url=MINIMAX_BASE_URL, max_connections=100)
+openai_client = OpenAI(
+    api_key=MINIMAX_API_KEY,
+    base_url=MINIMAX_BASE_URL,
+    max_connections=100,
+)
 executor = ThreadPoolExecutor(max_workers=20)
 
 # ============================================================================
-# Load shared emotion lexicon
+# Shared emotion lexicon
 # ============================================================================
 
 SHARED_DIR = Path(__file__).parent.parent / "shared"
 EMOTION_FILE = SHARED_DIR / "emotions.json"
+
 
 def load_emotions():
     if EMOTION_FILE.exists():
@@ -47,36 +55,35 @@ def load_emotions():
             return json.load(f)
     return None
 
+
 _emotion_data = load_emotions()
+EMOTION_LEXICON = _emotion_data.get("emotions", {}) if _emotion_data else {}
+PRIORITY_KW = _emotion_data.get("priority_keywords", {}) if _emotion_data else {}
 
-EMOTION_LEXICON = _emotion_data["emotions"] if _emotion_data else {}
-PRIORITY_KW = _emotion_data["priority_keywords"] if _emotion_data else {}
-
-# Fallback inline lexicon (used if shared file missing)
 if not EMOTION_LEXICON:
     EMOTION_LEXICON = {
-        "positive": {"prob": 0.85, "emoji": "😊", "advice": "💖 保持好心情！", "keywords": ["开心","高兴","快乐","棒","happy","great","wonderful","love","joy"]},
-        "negative": {"prob": 0.80, "emoji": "💙", "advice": "💙 深呼吸，和信任的人聊聊。", "keywords": ["难过","伤心","痛苦","抑郁","sad","depressed","crying"]},
-        "anxious":  {"prob": 0.78, "emoji": "🌸", "advice": "🌸 做5次深呼吸。", "keywords": ["焦虑","担心","害怕","紧张","anxious","worried","scared"]},
-        "angry":    {"prob": 0.82, "emoji": "🤍", "advice": "🤍 描述感受，而非压抑。", "keywords": ["生气","愤怒","讨厌","烦","angry","hate","furious","mad"]},
-        "sad":      {"prob": 0.80, "emoji": "😢", "advice": "😢 允许自己感受情绪。", "keywords": ["哭泣","流泪","分手","sad","crying","lonely"]},
+        "positive": {"prob": 0.85, "emoji": "😊", "advice": "💖 保持好心情！", "keywords": ["开心", "高兴", "happy", "great"]},
+        "negative": {"prob": 0.80, "emoji": "💙", "advice": "💙 深呼吸，和信任的人聊聊。", "keywords": ["难过", "伤心", "sad", "depressed"]},
+        "anxious":  {"prob": 0.78, "emoji": "🌸", "advice": "🌸 做5次深呼吸。", "keywords": ["焦虑", "担心", "anxious", "worried"]},
+        "angry":    {"prob": 0.82, "emoji": "🤍", "advice": "🤍 描述感受，而非压抑。", "keywords": ["生气", "愤怒", "angry", "hate"]},
+        "sad":      {"prob": 0.80, "emoji": "😢", "advice": "😢 允许自己感受情绪。", "keywords": ["哭泣", "分手", "sad", "crying"]},
         "neutral":  {"prob": 0.70, "emoji": "🌿", "advice": "🌿 继续说吧。", "keywords": []},
     }
     PRIORITY_KW = {
-        "angry":   ["生气","愤怒","讨厌","烦","angry","hate","furious","mad","rage","骂"],
-        "sad":     ["哭","泪","分手","失恋","sad","crying","lonely","孤独"],
-        "anxious": ["焦虑","担心","害怕","紧张","anxious","worried","scared","压力","考研"],
-        "positive":["开心","高兴","快乐","棒","happy","great","wonderful","love","joy","太好了"],
-        "negative":["难过","伤心","痛苦","抑郁","崩溃","sad","hurt","depressed","绝望"],
+        "angry":    ["生气", "愤怒", "讨厌", "烦", "angry", "hate", "furious", "mad", "rage", "骂"],
+        "sad":      ["哭", "泪", "分手", "失恋", "sad", "crying", "lonely", "孤独"],
+        "anxious":  ["焦虑", "担心", "害怕", "紧张", "anxious", "worried", "scared", "压力", "考研"],
+        "positive": ["开心", "高兴", "快乐", "棒", "happy", "great", "wonderful", "love", "joy", "太好了"],
+        "negative": ["难过", "伤心", "痛苦", "抑郁", "崩溃", "sad", "hurt", "depressed", "绝望"],
     }
 
 EMPATHY_RESPONSES = {
-    "positive": ["太好了！😊 有什么特别让你开心的细节吗？","太棒了！🌟 真为你高兴！是什么事情？","哇，听起来很开心！💖"],
-    "negative": ["我听到了 💙 谢谢你愿意告诉我。有时候倾诉本身就是疗愈。","我能理解你现在的心情 💙 愿意再多说一些吗？","我理解这让你很难受 💙 你不必强撑。"],
-    "anxious":  ["焦虑是很常见的情绪 🌸 深呼吸，我们慢慢来。","我能感受到你的压力 🌸 把担心的事说出来，我们一起梳理？","焦虑时，试着把注意力带回当下 🌸"],
-    "angry":    ["我听到了 🤍 愤怒是完全正常的情绪。能说说发生了什么吗？","我能理解你为什么生气 🤍 被这样对待真的很让人恼火。","愤怒也是一种需要被看到的情绪 🤍"],
-    "sad":      ["我听到了 💙 我能感受到你现在的难过。","听起来你经历了一些难过的事 💙 允许自己感受这些，好吗？","我很高兴你愿意说出来 💙 我在这里。"],
-    "neutral":  ["好的 🌿 还有什么是想分享的吗？","明白了 🌿 愿意多说一些吗？","继续说吧，我愿意倾听 🌿"],
+    "positive": ["太好了！😊 有什么特别让你开心的细节吗？", "太棒了！🌟 真为你高兴！是什么事情？", "哇，听起来很开心！💖"],
+    "negative": ["我听到了 💙 谢谢你愿意告诉我。有时候倾诉本身就是疗愈。", "我能理解你现在的心情 💙 愿意再多说一些吗？", "我理解这让你很难受 💙 你不必强撑。"],
+    "anxious":  ["焦虑是很常见的情绪 🌸 深呼吸，我们慢慢来。", "我能感受到你的压力 🌸 把担心的事说出来，我们一起梳理？", "焦虑时，试着把注意力带回当下 🌸"],
+    "angry":    ["我听到了 🤍 愤怒是完全正常的情绪。能说说发生了什么吗？", "我能理解你为什么生气 🤍 被这样对待真的很让人恼火。", "愤怒也是一种需要被看到的情绪 🤍"],
+    "sad":      ["我听到了 💙 我能感受到你现在的难过。", "听起来你经历了一些难过的事 💙 允许自己感受这些，好吗？", "我很高兴你愿意说出来 💙 我在这里。"],
+    "neutral":  ["好的 🌿 还有什么是想分享的吗？", "明白了 🌿 愿意多说一些吗？", "继续说吧，我愿意倾听 🌿"],
 }
 
 SYSTEM_PROMPT = """你是一个温暖、有同理心的情感支持助手。
@@ -97,15 +104,9 @@ SYSTEM_PROMPT = """你是一个温暖、有同理心的情感支持助手。
 助手："""
 
 # ============================================================================
-# App
-# ============================================================================
-
-app = FastAPI(title="EmpathicBot LLM Service")
-app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
-
-# ============================================================================
 # Emotion Detection
 # ============================================================================
+
 
 def detect_emotion(text: str) -> tuple[str, float]:
     text_lower = text.lower()
@@ -121,20 +122,22 @@ def detect_emotion(text: str) -> tuple[str, float]:
                 return emotion, data["prob"]
     return "neutral", 0.70
 
+
 # ============================================================================
-# Token Counting (simple char-based estimate)
+# Token & Context
 # ============================================================================
+
 
 def estimate_tokens(text: str) -> int:
-    """Rough estimate: ~4 chars per token for Chinese+English mixed text"""
+    """Rough estimate: ~4 chars per token for Chinese+English mixed text."""
     return len(text) // 4
 
+
 def truncate_history(context: list, max_tokens: int) -> list:
-    """Truncate oldest messages to fit within token budget"""
+    """Drop oldest messages until total fits within token budget."""
     total = sum(estimate_tokens(msg.get("content", "")) for msg in context)
     if total <= max_tokens:
         return context
-    # Keep newest messages first, drop oldest
     result = []
     for msg in reversed(context):
         tokens = estimate_tokens(msg.get("content", ""))
@@ -143,17 +146,10 @@ def truncate_history(context: list, max_tokens: int) -> list:
             total -= tokens
         else:
             break
-    # If still too large, hard slice newest
-    if not result:
-        return context[-4:]
-    return result
+    return result or context[-4:]
 
-# ============================================================================
-# Prompt Builder
-# ============================================================================
 
 def build_prompt(message: str, emotion: str, emotion_prob: float, context: list) -> str:
-    # Truncate context to fit within token budget
     truncated = truncate_history(context, MAX_CONTEXT_TOKENS)
     history_str = ""
     for msg in truncated:
@@ -170,54 +166,96 @@ def build_prompt(message: str, emotion: str, emotion_prob: float, context: list)
         message=message,
     )
 
+
 def get_empathy_response(emotion: str) -> str:
     responses = EMPATHY_RESPONSES.get(emotion, EMPATHY_RESPONSES["neutral"])
     return responses[int(time.time() * 1000) % len(responses)]
 
+
 # ============================================================================
-# LLM Calls (async thread pool)
-// ============================================================================
+# App
+# ============================================================================
+
+app = FastAPI(title="EmpathicBot LLM Service")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ============================================================================
+# LLM Calls
+# ============================================================================
+
 
 async def call_llm(prompt: str, message: str) -> str:
     def _call():
         resp = openai_client.chat.completions.create(
             model=LLM_MODEL,
-            messages=[{"role": "system", "content": prompt}, {"role": "user", "content": message}],
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": message},
+            ],
             temperature=LLM_TEMPERATURE,
             max_tokens=LLM_MAX_TOKENS,
         )
         return resp.choices[0].message.content
+
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(executor, _call)
 
+
 async def call_llm_stream(prompt: str, message: str):
-    def _gen():
-        stream = openai_client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[{"role": "system", "content": prompt}, {"role": "user", "content": message}],
-            temperature=LLM_TEMPERATURE,
-            max_tokens=LLM_MAX_TOKENS,
-            stream=True,
-        )
-        for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                yield json.dumps({"token": chunk.choices[0].delta.content}) + "\n\n"
+    """
+    Run blocking SSE stream in thread pool, yield SSE-formatted tokens.
+    """
+    def _stream_sync():
+        try:
+            stream = openai_client.chat.completions.create(
+                model=LLM_MODEL,
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": message},
+                ],
+                temperature=LLM_TEMPERATURE,
+                max_tokens=LLM_MAX_TOKENS,
+                stream=True,
+            )
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    token = chunk.choices[0].delta.content
+                    yield f"data: {json.dumps({'token': token})}\n\n"
+        except Exception as e:
+            print(f"[Stream Error] {e}")
+            yield f"data: {json.dumps({'token': ''})}\n\n"
 
     loop = asyncio.get_event_loop()
-    gen = _gen()
+    gen = _stream_sync()
     while True:
         try:
-            chunk = await asyncio.wait_for(loop.run_in_executor(executor, next, iter(gen)), timeout=30.0)
+            chunk = await asyncio.wait_for(
+                loop.run_in_executor(executor, next, iter(gen)),
+                timeout=60.0,
+            )
             yield chunk
+        except asyncio.TimeoutError:
+            yield f"data: {json.dumps({'done': True, 'error': 'timeout'})}\n\n"
+            break
         except StopIteration:
             break
-        except Exception:
-            yield json.dumps({"token": ""}) + "\n\n"
+        except Exception as e:
+            print(f"[Stream loop] {e}")
+            yield f"data: {json.dumps({'done': True, 'error': str(e)})}\n\n"
             break
+
 
 # ============================================================================
 # Models
 # ============================================================================
+
 
 class ChatRequest(BaseModel):
     message: str
@@ -225,15 +263,18 @@ class ChatRequest(BaseModel):
     emotion: str = "neutral"
     emotion_prob: float = 0.5
 
+
 class ChatResponse(BaseModel):
     text: str
     emotion: str
     emotion_prob: float
     advice: str = ""
 
+
 # ============================================================================
 # HTTP Endpoints
 # ============================================================================
+
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
@@ -254,7 +295,12 @@ async def chat(req: ChatRequest):
         text = get_empathy_response(emotion)
 
     advice = EMOTION_LEXICON.get(emotion, EMOTION_LEXICON["neutral"])["advice"]
-    return ChatResponse(text=text, emotion=emotion, emotion_prob=emotion_prob, advice=advice)
+    return ChatResponse(
+        text=text,
+        emotion=emotion,
+        emotion_prob=emotion_prob,
+        advice=advice,
+    )
 
 
 @app.post("/chat/stream")
@@ -296,7 +342,12 @@ async def health():
         print(f"[Health] LLM failed: {e}")
         llm_ok = False
 
-    return {"status": "ok", "model": LLM_MODEL, "llm": llm_ok, "temperature": LLM_TEMPERATURE}
+    return {
+        "status": "ok",
+        "model": LLM_MODEL,
+        "llm": llm_ok,
+        "temperature": LLM_TEMPERATURE,
+    }
 
 
 @app.post("/emotion/analyze")
@@ -309,7 +360,12 @@ async def analyze_emotion(req: Request):
         raise HTTPException(status_code=400, detail="text too long")
     emotion, prob = detect_emotion(text)
     data = EMOTION_LEXICON.get(emotion, EMOTION_LEXICON["neutral"])
-    return {"emotion": emotion, "prob": prob, "emoji": data["emoji"], "advice": data["advice"]}
+    return {
+        "emotion": emotion,
+        "prob": prob,
+        "emoji": data["emoji"],
+        "advice": data["advice"],
+    }
 
 
 if __name__ == "__main__":

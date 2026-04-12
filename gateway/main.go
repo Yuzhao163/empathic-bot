@@ -616,7 +616,8 @@ func handleChatStream(c *gin.Context) {
 		req.SessionID = newSessionID()
 	}
 
-	store.lpushMessage(c.Request.Context(), req.SessionID, mustMarshal(Message{
+	// Use detached context — Redis write must complete even if SSE closes
+	go store.lpushMessage(context.Background(), req.SessionID, mustMarshal(Message{
 		Role:      "user",
 		Content:   req.Message,
 		Emotion:   req.Emotion,
