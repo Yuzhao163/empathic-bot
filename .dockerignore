@@ -1,0 +1,38 @@
+# Git
+.git
+.gitignore
+
+# Build artifacts
+node_modules
+dist
+build
+*.exe
+
+# IDE
+.idea
+.vscode
+*.swp
+
+# Docs
+*.md
+!README.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test files
+*_test.go
+*_test.py
+test_*.py
+__pycache__
+.pytest_cache
+
+# Local dev
+.env
+.env.local
+.env.*.local
+
+# Misc
+*.log
+*.tmp

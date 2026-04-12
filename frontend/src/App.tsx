@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer } from 'recharts'
 import { Send, Trash2, Plus, MessageCircle, Menu, X, Sun, Moon, Monitor } from 'lucide-react'
-import { apiChat } from './api'
+import { apiChatStream } from './api'
 import { useTheme } from './useTheme'
 import type { Message, Session } from './types'
 import { EMOTION_CONFIG } from './types'
@@ -28,9 +28,7 @@ function loadSessions(): Record<string, Session> {
     if (!raw) return {}
     const sessions: Record<string, Session> = JSON.parse(raw)
     const sorted = Object.values(sessions).sort((a, b) => b.createdAt - a.createdAt)
-    if (sorted.length > MAX_SESSIONS) {
-      sorted.slice(MAX_SESSIONS).forEach(s => delete sessions[s.id])
-    }
+    if (sorted.length > MAX_SESSIONS) sorted.slice(MAX_SESSIONS).forEach(s => delete sessions[s.id])
     return sessions
   } catch { return {} }
 }
@@ -78,11 +76,20 @@ function useEmotionTrend(messages: Message[]) {
 }
 
 // ============================================================================
-// Theme-aware Components
+// Theme Icons
+// ============================================================================
+
+const ThemeIcon = ({ mode }: { mode: string }) => {
+  if (mode === 'dark') return <Moon size={16} />
+  if (mode === 'light') return <Sun size={16} />
+  return <Monitor size={16} />
+}
+
+// ============================================================================
+// Components
 // ============================================================================
 
 function EmotionBadge({ emotion, prob, size = 'md' }: { emotion: string; prob: number; size?: 'sm' | 'md' | 'lg' }) {
-  const { theme } = useTheme()
   const config = EMOTION_CONFIG[emotion] ?? EMOTION_CONFIG.neutral
   const fontSize = size === 'lg' ? '2rem' : size === 'md' ? '1.25rem' : '0.875rem'
   const padding  = size === 'lg' ? '0.75rem 1.25rem' : size === 'md' ? '0.5rem 1rem' : '0.25rem 0.625rem'
@@ -130,7 +137,7 @@ function MessageBubble({ msg }: { msg: Message }) {
   return (
     <motion.div initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }}
       style={{ display: 'flex', flexDirection: isUser ? 'row-reverse' : 'row', alignItems: 'flex-start', gap: '0.75rem' }}>
-      <div style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, background: isUser ? theme.accent : theme.assistantBubble === theme.surface ? '#10B981' : theme.assistantBubble, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>
+      <div style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, background: isUser ? theme.accent : '#10B981', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>
         {isUser ? '😊' : '🤖'}
       </div>
       <div style={{ maxWidth: '72%' }}>
@@ -151,7 +158,7 @@ function TypingIndicator() {
   const { theme } = useTheme()
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
-      <div style={{ width: 36, height: 36, borderRadius: '50%', background: theme.assistantBubble === theme.surface ? '#10B981' : theme.assistantBubble, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>🤖</div>
+      <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#10B981', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>🤖</div>
       <div style={{ padding: '0.875rem 1.125rem', background: theme.assistantBubble, borderRadius: '1rem 1rem 1rem 0.25rem', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
         <span style={{ display: 'inline-flex', gap: 4 }}>
           {[0, 0.2, 0.4].map(d => <span key={d} style={{ width: 6, height: 6, borderRadius: '50%', background: theme.textMuted, animation: `bounce 1.2s ${d}s infinite` }} />)}
@@ -177,12 +184,6 @@ function EmptyState() {
       )}
     </div>
   )
-}
-
-const ThemeIcon = ({ mode }: { mode: string }) => {
-  if (mode === 'dark') return <Moon size={16} />
-  if (mode === 'light') return <Sun size={16} />
-  return <Monitor size={16} />
 }
 
 // ============================================================================
@@ -229,27 +230,84 @@ export default function App() {
 
     const { emotion, prob } = detectEmotion(text)
     const userMsg: Message = { id: crypto.randomUUID(), role: 'user', content: text, emotion, emotionProb: prob, timestamp: Date.now() }
-    setSessions(prev => ({ ...prev, [sessionId!]: { ...prev[sessionId!], messages: [...prev[sessionId!].messages, userMsg] } }))
+
+    // 先插入用户消息
+    setSessions(prev => ({
+      ...prev,
+      [sessionId!]: { ...prev[sessionId!], messages: [...prev[sessionId!].messages, userMsg] },
+    }))
+
+    // 创建助手空消息（用于流式增量更新）
+    const assistantId = crypto.randomUUID()
+    const assistantMsg: Message = { id: assistantId, role: 'assistant', content: '', emotion, emotionProb: prob, timestamp: Date.now() }
+    setSessions(prev => ({
+      ...prev,
+      [sessionId!]: { ...prev[sessionId!], messages: [...prev[sessionId!].messages, assistantMsg] },
+    }))
 
     setStreaming(true)
-    try {
-      const result = await apiChat(sessionId!, text, sessions[sessionId!]?.messages ?? [])
-      const assistantMsg: Message = {
-        id: crypto.randomUUID(), role: 'assistant',
-        content: result.text || result.message || '我在这里，愿意听你说。',
-        emotion: result.emotion || emotion,
-        emotionProb: result.emotion_prob || result.emotionProb || 0.8,
-        timestamp: Date.now(),
-      }
-      setSessions(prev => ({ ...prev, [sessionId!]: { ...prev[sessionId!], messages: [...prev[sessionId!].messages, assistantMsg] } }))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '发送失败，请稍后重试')
-      const fallback = EMOTION_CONFIG[emotion]
-      const fallbackMsg: Message = { id: crypto.randomUUID(), role: 'assistant', content: fallback?.advice || '我在这里，愿意听你说。', emotion, emotionProb: prob, timestamp: Date.now() }
-      setSessions(prev => ({ ...prev, [sessionId!]: { ...prev[sessionId!], messages: [...prev[sessionId!].messages, fallbackMsg] } }))
-    } finally {
+
+    // 流式追加 token
+    const appendToken = (token: string) => {
+      setSessions(prev => {
+        const msgs = prev[sessionId!]?.messages ?? []
+        return {
+          ...prev,
+          [sessionId!]: {
+            ...prev[sessionId!],
+            messages: msgs.map(m => m.id === assistantId ? { ...m, content: m.content + token } : m),
+          },
+        }
+      })
+    }
+
+    // 结束流式
+    const finishStream = (result: { emotion?: string; advice?: string }) => {
+      setSessions(prev => {
+        const msgs = prev[sessionId!]?.messages ?? []
+        return {
+          ...prev,
+          [sessionId!]: {
+            ...prev[sessionId!],
+            messages: msgs.map(m => m.id === assistantId
+              ? { ...m, emotion: result.emotion || emotion, advice: result.advice }
+              : m),
+          },
+        }
+      })
       setStreaming(false)
     }
+
+    // 流式出错
+    const streamError = (errMsg: string) => {
+      setError(errMsg)
+      const fallback = EMOTION_CONFIG[emotion]?.advice || '我在这里，愿意听你说。'
+      setSessions(prev => {
+        const msgs = prev[sessionId!]?.messages ?? []
+        return {
+          ...prev,
+          [sessionId!]: {
+            ...prev[sessionId!],
+            messages: msgs.map(m => m.id === assistantId ? { ...m, content: fallback } : m),
+          },
+        }
+      })
+      setStreaming(false)
+    }
+
+    // 存一份历史（流式过程中避免闭包陷阱）
+    const savedMessages = sessions[sessionId!]?.messages ?? []
+
+    await apiChatStream(
+      sessionId!,
+      text,
+      emotion,
+      prob,
+      savedMessages,
+      appendToken,
+      finishStream,
+      streamError
+    )
   }, [input, streaming, currentSessionId, sessions])
 
   const currentEmotion = messages.length > 0 ? (messages[messages.length - 1].emotion || 'neutral') : 'neutral'
@@ -291,7 +349,6 @@ export default function App() {
             <h1 style={{ fontSize: '1rem', fontWeight: 600, color: theme.text }}>情感对话</h1>
             <EmotionBadge emotion={currentEmotion} prob={0.8} size="sm" />
           </div>
-          {/* Theme toggle */}
           <button onClick={toggleTheme} title={`主题: ${mode === 'auto' ? '跟随系统' : mode === 'dark' ? '深色' : '浅色'}`}
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem', display: 'flex', alignItems: 'center', color: theme.textMuted }}>
             <ThemeIcon mode={mode} />

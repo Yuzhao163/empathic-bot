@@ -174,6 +174,79 @@ func (s *redisStore) deleteSession(ctx context.Context, sessionID string) error 
 }
 
 // ============================================================================
+// Metrics — Prometheus-style (no external lib)
+// ============================================================================
+
+var (
+	metricRequestsTotal = 0
+	metricRequestsActive = 0
+	metricLLMCallsTotal = 0
+	metricLLMCallsFailed = 0
+	metricWSConnections = 0
+	metricRequestsMu sync.Mutex
+)
+
+func incRequest() {
+	metricRequestsMu.Lock()
+	metricRequestsTotal++
+	metricRequestsActive++
+	metricRequestsMu.Unlock()
+}
+
+func decRequest() {
+	metricRequestsMu.Lock()
+	metricRequestsActive--
+	metricRequestsMu.Unlock()
+}
+
+func incLLM(success bool) {
+	metricRequestsMu.Lock()
+	metricLLMCallsTotal++
+	if !success {
+		metricLLMCallsFailed++
+	}
+	metricRequestsMu.Unlock()
+}
+
+func handleMetrics(c *gin.Context) {
+	metricRequestsMu.Lock()
+	active := metricRequestsActive
+	total := metricRequestsTotal
+	llmTotal := metricLLMCallsTotal
+	llmFailed := metricLLMCallsFailed
+	metricRequestsMu.Unlock()
+
+	// Queue depth
+	queueDepth := len(scheduler.pendingCh)
+
+	c.Header("Content-Type", "text/plain; version=0.0.4")
+	c.String(200, fmt.Sprintf(`# HELP empathic_requests_total Total HTTP requests
+# TYPE empathic_requests_total counter
+empathic_requests_total %d
+
+# HELP empathic_requests_active Active HTTP requests
+# TYPE empathic_requests_active gauge
+empathic_requests_active %d
+
+# HELP empathic_llm_calls_total Total LLM calls
+# TYPE empathic_llm_calls_total counter
+empathic_llm_calls_total %d
+
+# HELP empathic_llm_calls_failed Total failed LLM calls
+# TYPE empathic_llm_calls_failed counter
+empathic_llm_calls_failed %d
+
+# HELP empathic_scheduler_queue_depth Scheduler pending queue depth
+# TYPE empathic_scheduler_queue_depth gauge
+empathic_scheduler_queue_depth %d
+
+# HELP empathic_ws_connections_current WebSocket connections (cumulative)
+# TYPE empathic_ws_connections gauge
+empathic_ws_connections %d
+`, total, active, llmTotal, llmFailed, queueDepth, metricWSConnections))
+}
+
+// ============================================================================
 // Rate Limiter — Per-IP
 // ============================================================================
 
@@ -281,6 +354,7 @@ func (s *Scheduler) callLLMService(req *ChatRequest) {
 	for _, provider := range availableLLMProviders {
 		resp, err = callLLMServiceWithRetry(provider, payload)
 		if err == nil {
+			incLLM(true)
 			break
 		}
 		slog.Warn("llm provider failed", "provider", provider, "err", err)
@@ -458,20 +532,92 @@ func main() {
 	r.Use(ipRateLimitMiddleware())
 
 	r.POST("/api/chat", handleChat)
+	r.POST("/api/chat/stream", handleChatStream)
 	r.GET("/api/history/:session_id", handleHistory)
 	r.DELETE("/api/history/:session_id", handleClearHistory)
 	r.GET("/api/sessions", handleSessions)
 	r.POST("/api/emotion/analyze", handleEmotionAnalyze)
 	r.POST("/api/emotion/trend", handleEmotionTrend)
-
 	r.GET("/ws/chat", handleWebSocket)
 	r.GET("/health", handleHealth)
+	r.GET("/metrics", handleMetrics)
 
 	addr := getEnv("PORT", "8080")
 	slog.Info("gateway started", "addr", addr)
 	if err := r.Run(":" + addr); err != nil {
 		slog.Error("server error", "err", err)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// SSE Streaming Chat
+// ---------------------------------------------------------------------------
+
+func handleChatStream(c *gin.Context) {
+	incRequest()
+	defer decRequest()
+
+	var req ChatRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid request: " + err.Error()})
+		return
+	}
+	if req.Message == "" {
+		c.JSON(400, gin.H{"error": "message is required"})
+		return
+	}
+	if len(req.Message) > 2000 {
+		c.JSON(400, gin.H{"error": "message too long, max 2000 characters"})
+		return
+	}
+
+	if req.SessionID == "" {
+		req.SessionID = newSessionID()
+	}
+
+	store.lpushMessage(c.Request.Context(), req.SessionID, mustMarshal(Message{
+		Role:      "user",
+		Content:   req.Message,
+		Emotion:   req.Emotion,
+		Timestamp: time.Now().UnixMilli(),
+	}))
+
+	// Proxy to Python SSE stream
+	body, _ := json.Marshal(map[string]any{
+		"message":       req.Message,
+		"context":        req.Context,
+		"emotion":       req.Emotion,
+		"emotion_prob":  0.5,
+	})
+
+	targetURL := availableLLMProviders[0] + "/chat/stream"
+	proxyReq, err := http.NewRequest("POST", targetURL, strings.NewReader(string(body)))
+	if err != nil {
+		c.JSON(500, gin.H{"error": "upstream error"})
+		return
+	}
+	proxyReq.Header.Set("Content-Type", "application/json")
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
+	defer cancel()
+
+	proxyResp, err := http.DefaultClient.Do(proxyReq.WithContext(ctx))
+	if err != nil {
+		slog.Warn("stream upstream failed", "err", err)
+		c.JSON(502, gin.H{"error": "LLM service unavailable"})
+		return
+	}
+	defer proxyResp.Body.Close()
+
+	if proxyResp.StatusCode != 200 {
+		c.JSON(502, gin.H{"error": "LLM service error"})
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("X-Accel-Buffering", "no")
+	c.Stream(200, "text/event-stream", proxyResp.Body)
 }
 
 // ---------------------------------------------------------------------------
@@ -516,6 +662,9 @@ func ipRateLimitMiddleware() gin.HandlerFunc {
 // ---------------------------------------------------------------------------
 
 func handleChat(c *gin.Context) {
+	incRequest()
+	defer decRequest()
+
 	var req ChatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": "invalid request: " + err.Error()})
@@ -736,6 +885,15 @@ func (l *wsConnLimiter) Allow(ip string, msgRate int) bool {
 }
 
 func handleWebSocket(c *gin.Context) {
+	metricRequestsMu.Lock()
+	metricWSConnections++
+	metricRequestsMu.Unlock()
+	defer func() {
+		metricRequestsMu.Lock()
+		metricWSConnections--
+		metricRequestsMu.Unlock()
+	}()
+
 	ip := c.ClientIP()
 	if !wsLimiter.Allow(ip, 10) {
 		c.JSON(429, gin.H{"error": "too many connections"})
