@@ -1,0 +1,76 @@
+{
+  "emotions": {
+    "positive": {
+      "prob": 0.85,
+      "emoji": "😊",
+      "advice": "💖 保持好心情！记录让你开心的事。",
+      "keywords": [
+        "开心", "高兴", "快乐", "棒", "很好", "谢谢", "喜欢", "爱", "美好", "幸福", "欢欣", "愉悦", "兴奋", "激动",
+        "太棒了", "太好了", "好开心", "好高兴", "真棒", "完美", "精彩", "优秀", "厉害", "赞叹", "佩服",
+        "满足", "欣慰", "感激", "感动", "暖心", "温馨", "顺利", "成功", "胜利", "通过了",
+        "happy", "great", "wonderful", "love", "excited", "joy", "awesome", "fantastic", "amazing",
+        "excellent", "perfect", "brilliant", "thrilled", "delighted", "grateful", "thankful"
+      ]
+    },
+    "negative": {
+      "prob": 0.80,
+      "emoji": "💙",
+      "advice": "💙 难过时，深呼吸。和信任的人聊聊会有帮助。",
+      "keywords": [
+        "难过", "伤心", "痛苦", "抑郁", "绝望", "崩溃", "沮丧", "失落", "心碎", "悲伤", "哀伤", "压抑",
+        "委屈", "失落感", "空虚", "疲惫", "无助", "无望", "灰心", "消沉", "颓废",
+        "sad", "hurt", "depressed", "devastated", "crying", "misery", "heartbroken", "miserable",
+        "gloomy", "hopeless", "desperate", "unhappy", "disappointed"
+      ]
+    },
+    "anxious": {
+      "prob": 0.78,
+      "emoji": "🌸",
+      "advice": "🌸 焦虑时，试着做5次深呼吸，专注当下。",
+      "keywords": [
+        "焦虑", "担心", "害怕", "紧张", "不安", "压力", "恐惧", "惊慌", "惶恐", "忧虑", "忐忑",
+        "好怕", "担心", "好紧张", "睡不着", "心慌", "发慌", "顾虑",
+        "考研", "考试", "复习", "来不及", "考不上", "期望",
+        "anxious", "worried", "scared", "nervous", "stress", "fear", "panic", "tense", "overwhelmed",
+        "stressed", "upset", "dread"
+      ]
+    },
+    "angry": {
+      "prob": 0.82,
+      "emoji": "🤍",
+      "advice": "🤍 愤怒是正常的。描述你的感受，而不是压抑它。",
+      "keywords": [
+        "生气", "愤怒", "讨厌", "烦", "火", "气死了", "暴躁", "恼火", "愤恨", "发火", "大怒", "忍无可忍",
+        "被骂", "批评", "加塞", "路怒", "素质低", "混蛋", "SB", "无语", "真想", "恨不得",
+        "angry", "hate", "furious", "mad", "annoyed", "rage", "irritated", "frustrated", "outraged",
+        "fuming", "livid"
+      ]
+    },
+    "sad": {
+      "prob": 0.80,
+      "emoji": "😢",
+      "advice": "😢 允许自己感受这些情绪，你值得被爱。",
+      "keywords": [
+        "哭泣", "流泪", "泪", "心酸", "哭", "哽咽", "泪目", "哭出来",
+        "分手", "失恋", "离婚", "感情", "三年", "背叛", "出轨",
+        "没人", "孤独", "寂寞", "一个人", "孤单",
+        "生病", "住院", "身体", "不舒服", "难受",
+        "sad", "hurt", "crying", "tears", "heartache", "grief", "lonely", "sorrow",
+        "heartbreak", "heartbroken"
+      ]
+    },
+    "neutral": {
+      "prob": 0.70,
+      "emoji": "🌿",
+      "advice": "🌿 感谢分享，还有什么想聊的吗？",
+      "keywords": []
+    }
+  },
+  "priority_keywords": {
+    "angry":   ["生气", "愤怒", "讨厌", "烦", "火", "angry", "hate", "furious", "mad", "rage", "骂", "挨骂", "凶"],
+    "sad":     ["哭", "泪", "分手", "失恋", "离婚", "sad", "crying", "lonely", "孤独", "寂寞"],
+    "anxious": ["焦虑", "担心", "害怕", "紧张", "不安", "anxious", "worried", "scared", "nervous", "stress", "压力", "考研", "考不上", "不听话", "顶嘴", "该怎么"],
+    "positive":["开心", "高兴", "快乐", "棒", "happy", "great", "wonderful", "love", "joy", "太好了", "太棒了", "好开心", "发表了", "祝贺", "激动", "朋友们", "半年", "好运", "好棒"],
+    "negative":["难过", "伤心", "痛苦", "抑郁", "崩溃", "sad", "hurt", "depressed", "devastated", "绝望", "失落"]
+  }
+}

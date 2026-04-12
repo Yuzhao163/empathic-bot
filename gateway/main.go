@@ -643,13 +643,30 @@ func handleEmotionTrend(c *gin.Context) {
 func handleHealth(c *gin.Context) {
 	_, err := store.client.Ping(c.Request.Context()).Result()
 	redisOK := err == nil
-	healthy := redisOK
+
+	// 检查下游 Python Service
+	pythonOK := false
+	for _, provider := range availableLLMProviders {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+		req, _ := http.NewRequestWithContext(ctx, "GET", provider+"/health", nil)
+		client := &http.Client{Timeout: 3 * time.Second}
+		resp, err := client.Do(req)
+		cancel()
+		if err == nil && resp.StatusCode == 200 {
+			pythonOK = true
+			resp.Body.Close()
+			break
+		}
+	}
+
+	healthy := redisOK && pythonOK
 	c.JSON(200, gin.H{
-		"status":  "ok",
-		"service": "gateway",
-		"redis":   redisOK,
-		"healthy": healthy,
-		"version": "1.0.0",
+		"status":   "ok",
+		"service":  "gateway",
+		"redis":    redisOK,
+		"python":   pythonOK,
+		"healthy":  healthy,
+		"version":  "1.1.0",
 	})
 }
 

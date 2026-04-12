@@ -2,87 +2,34 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer } from 'recharts'
 import { Send, Trash2, Plus, MessageCircle, Menu, X } from 'lucide-react'
+import { apiChat } from './api'
+import type { Message, Session } from './types'
+import { EMOTION_CONFIG } from './types'
 
 // ============================================================================
-// Types
+// Constants
 // ============================================================================
 
-interface Message {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  emotion: string
-  emotionProb: number
-  timestamp: number
-}
-
-interface Session {
-  id: string
-  title: string
-  messages: Message[]
-  createdAt: number
-}
-
-interface ChatResult {
-  text?: string
-  message?: string
-  emotion: string
-  emotion_prob?: number
-  emotionProb?: number
-}
-
-// ============================================================================
-// Config Validation — VITE_GATEWAY_URL 必须配置
-// ============================================================================
-
-const GATEWAY_URL = (() => {
-  const url = import.meta.env.VITE_GATEWAY_URL
-  if (!url || url === 'http://localhost:8001') {
-    console.error(
-      '[EmpathicBot] VITE_GATEWAY_URL is not configured. ' +
-      'Please set it to your Railway Gateway URL in Vercel environment variables. ' +
-      'Example: https://empathic-bot.up.railway.app'
-    )
-  }
-  return url || ''
-})()
-
-// ============================================================================
-// Emotion Config
-// ============================================================================
-
-const EMOTION_CONFIG: Record<string, {
-  emoji: string
-  color: string
-  bg: string
-  label: string
-  advice: string
-}> = {
-  positive: { emoji: '😊', color: '#10B981', bg: 'rgba(16,185,129,0.1)', label: '开心', advice: '💖 保持好心情！' },
-  negative: { emoji: '💙', color: '#3B82F6', bg: 'rgba(59,130,246,0.1)', label: '难过', advice: '💙 深呼吸，和信任的人聊聊。' },
-  anxious:  { emoji: '🌸', color: '#8B5CF6', bg: 'rgba(139,92,246,0.1)', label: '焦虑', advice: '🌸 做5次深呼吸，专注当下。' },
-  angry:    { emoji: '🤍', color: '#F59E0B', bg: 'rgba(245,158,11,0.1)', label: '愤怒', advice: '🤍 描述感受，而非压抑。' },
-  sad:      { emoji: '😢', color: '#6366F1', bg: 'rgba(99,102,241,0.1)', label: '难过', advice: '😢 允许自己感受这些情绪。' },
-  neutral:  { emoji: '🌿', color: '#6B7280', bg: 'rgba(107,114,128,0.1)', label: '平静', advice: '🌿 继续说吧。' },
-}
-
-// ============================================================================
-// Session Storage — 带数量上限
-// ============================================================================
-
+const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL || ''
 const STORAGE_KEY = 'empathic_sessions'
 const MAX_SESSIONS = 50
+
+const EMOTION_VALUES: Record<string, number> = {
+  positive: 100, negative: 20, anxious: 40, angry: 15, sad: 30, neutral: 60,
+}
+
+// ============================================================================
+// Session Storage
+// ============================================================================
 
 function loadSessions(): Record<string, Session> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return {}
     const sessions: Record<string, Session> = JSON.parse(raw)
-    // 清理超过上限的旧 session
     const sorted = Object.values(sessions).sort((a, b) => b.createdAt - a.createdAt)
     if (sorted.length > MAX_SESSIONS) {
-      const toDelete = sorted.slice(MAX_SESSIONS)
-      toDelete.forEach(s => delete sessions[s.id])
+      sorted.slice(MAX_SESSIONS).forEach(s => delete sessions[s.id])
     }
     return sessions
   } catch { return {} }
@@ -92,7 +39,6 @@ function saveSessions(sessions: Record<string, Session>) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions))
   } catch {
-    // localStorage 满，删除最旧的再试
     const sorted = Object.values(sessions).sort((a, b) => b.createdAt - a.createdAt)
     if (sorted.length > 1) {
       const updated = { ...sessions }
@@ -108,14 +54,15 @@ function saveSessions(sessions: Record<string, Session>) {
 
 function detectEmotion(text: string): { emotion: string; prob: number } {
   const t = text.toLowerCase()
-  const positives = ['开心','高兴','快乐','棒','很好','谢谢','喜欢','爱','happy','great','wonderful','love','excited','joy']
-  const negatives = ['难过','伤心','痛苦','抑郁','崩溃','sad','hurt','depressed','crying','misery']
-  const anxious  = ['焦虑','担心','害怕','紧张','不安','压力','anxious','worried','scared','nervous','stress']
-  const angry    = ['生气','愤怒','讨厌','烦','火','angry','hate','furious','mad']
-  for (const w of positives) if (t.includes(w)) return { emotion: 'positive', prob: 0.85 }
-  for (const w of negatives) if (t.includes(w)) return { emotion: 'negative', prob: 0.80 }
-  for (const w of anxious)  if (t.includes(w)) return { emotion: 'anxious',  prob: 0.78 }
-  for (const w of angry)    if (t.includes(w)) return { emotion: 'angry',    prob: 0.82 }
+  const map: [string, string[], number][] = [
+    ['positive', ['开心','高兴','快乐','棒','happy','great','wonderful','love','excited','joy'], 0.85],
+    ['negative', ['难过','伤心','痛苦','抑郁','崩溃','sad','hurt','depressed','crying','misery'], 0.80],
+    ['anxious',  ['焦虑','担心','害怕','紧张','不安','压力','anxious','worried','scared','nervous','stress'], 0.78],
+    ['angry',    ['生气','愤怒','讨厌','烦','火','angry','hate','furious','mad'], 0.82],
+  ]
+  for (const [emotion, words, prob] of map) {
+    for (const w of words) if (t.includes(w)) return { emotion, prob }
+  }
   return { emotion: 'neutral', prob: 0.70 }
 }
 
@@ -123,40 +70,11 @@ function detectEmotion(text: string): { emotion: string; prob: number } {
 // Emotion Trend
 // ============================================================================
 
-const EMOTION_VALUES: Record<string, number> = {
-  positive: 100, negative: 20, anxious: 40, angry: 15, sad: 30, neutral: 60
-}
-
-function getEmotionTrend(messages: Message[]) {
-  const userMsgs = messages.filter(m => m.role === 'user').slice(-6)
-  return useMemo(() =>
-    userMsgs.map((m, i) => ({
-      index: i,
-      value: EMOTION_VALUES[m.emotion] ?? 60,
-      emotion: m.emotion
-    })), [messages])
-}
-
-// ============================================================================
-// API
-// ============================================================================
-
-async function apiChat(sessionId: string, message: string, history: Message[]): Promise<ChatResult> {
-  const { emotion, prob } = detectEmotion(message)
-  const context = history.slice(-6).map(m => ({ role: m.role, content: m.content, emotion: m.emotion }))
-
-  const res = await fetch(`${GATEWAY_URL}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, context, emotion, emotion_prob: prob }),
-  })
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Network error' }))
-    throw new Error(err.error || `HTTP ${res.status}`)
-  }
-
-  return res.json()
+function useEmotionTrend(messages: Message[]) {
+  return useMemo(() => {
+    const userMsgs = messages.filter(m => m.role === 'user').slice(-6)
+    return userMsgs.map((m, i) => ({ index: i, value: EMOTION_VALUES[m.emotion] ?? 60, emotion: m.emotion }))
+  }, [messages])
 }
 
 // ============================================================================
@@ -167,22 +85,17 @@ function EmotionBadge({ emotion, prob, size = 'md' }: { emotion: string; prob: n
   const config = EMOTION_CONFIG[emotion] ?? EMOTION_CONFIG.neutral
   const fontSize = size === 'lg' ? '2rem' : size === 'md' ? '1.25rem' : '0.875rem'
   const padding  = size === 'lg' ? '0.75rem 1.25rem' : size === 'md' ? '0.5rem 1rem' : '0.25rem 0.625rem'
-
   return (
-    <motion.div
-      style={{ background: config.bg, color: config.color, padding, borderRadius: '9999px',
-        display: 'inline-flex', alignItems: 'center', gap: '0.5rem', fontSize }}
-      animate={{ scale: [1, 1.05, 1] }}
-      transition={{ duration: 0.3 }}
-    >
+    <motion.div style={{ background: config.bg, color: config.color, padding, borderRadius: '9999px', display: 'inline-flex', alignItems: 'center', gap: '0.5rem', fontSize }}
+      animate={{ scale: [1, 1.05, 1] }} transition={{ duration: 0.3 }}>
       <span>{config.emoji}</span>
-      <span className="emotion-label">{config.label}</span>
+      <span>{config.label}</span>
       <span style={{ opacity: 0.7, fontSize: '0.75em' }}>{Math.round(prob * 100)}%</span>
     </motion.div>
   )
 }
 
-function EmotionTrendChart({ data }: { data: ReturnType<typeof getEmotionTrend> }) {
+function EmotionTrendChart({ data }: { data: ReturnType<typeof useEmotionTrend> }) {
   if (data.length < 2) return null
   return (
     <div style={{ height: 60, marginTop: '0.5rem' }}>
@@ -200,15 +113,8 @@ function EmotionTrendChart({ data }: { data: ReturnType<typeof getEmotionTrend> 
 function AdviceCard({ emotion }: { emotion: string }) {
   const config = EMOTION_CONFIG[emotion] ?? EMOTION_CONFIG.neutral
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      style={{
-        background: config.bg, borderLeft: `3px solid ${config.color}`,
-        padding: '0.75rem 1rem', borderRadius: '0 0.5rem 0.5rem 0',
-        fontSize: '0.875rem', color: config.color, marginTop: '0.5rem',
-      }}
-    >
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+      style={{ background: config.bg, borderLeft: `3px solid ${config.color}`, padding: '0.75rem 1rem', borderRadius: '0 0.5rem 0.5rem 0', fontSize: '0.875rem', color: config.color, marginTop: '0.5rem' }}>
       💡 {config.advice}
     </motion.div>
   )
@@ -217,26 +123,14 @@ function AdviceCard({ emotion }: { emotion: string }) {
 function MessageBubble({ msg }: { msg: Message }) {
   const config = EMOTION_CONFIG[msg.emotion] ?? EMOTION_CONFIG.neutral
   const isUser = msg.role === 'user'
-
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      style={{ display: 'flex', flexDirection: isUser ? 'row-reverse' : 'row', alignItems: 'flex-start', gap: '0.75rem' }}
-    >
-      <div style={{
-        width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
-        background: isUser ? '#8B5CF6' : '#10B981',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem',
-      }}>
+    <motion.div initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+      style={{ display: 'flex', flexDirection: isUser ? 'row-reverse' : 'row', alignItems: 'flex-start', gap: '0.75rem' }}>
+      <div style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0, background: isUser ? '#8B5CF6' : '#10B981', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>
         {isUser ? '😊' : '🤖'}
       </div>
       <div style={{ maxWidth: '72%' }}>
-        <div style={{
-          padding: '0.875rem 1.125rem', borderRadius: isUser ? '1rem 1rem 0.25rem 1rem' : '1rem 1rem 1rem 0.25rem',
-          background: isUser ? '#8B5CF6' : 'white', color: isUser ? 'white' : '#374151',
-          boxShadow: '0 1px 4px rgba(0,0,0,0.08)', fontSize: '0.9375rem', lineHeight: 1.6,
-        }}>
+        <div style={{ padding: '0.875rem 1.125rem', borderRadius: isUser ? '1rem 1rem 0.25rem 1rem' : '1rem 1rem 1rem 0.25rem', background: isUser ? '#8B5CF6' : 'white', color: isUser ? 'white' : '#374151', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', fontSize: '0.9375rem', lineHeight: 1.6 }}>
           {msg.content}
         </div>
         <div style={{ fontSize: '0.75rem', color: '#9CA3AF', marginTop: '0.375rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -251,14 +145,11 @@ function MessageBubble({ msg }: { msg: Message }) {
 
 function TypingIndicator() {
   return (
-    <motion.div className="message assistant" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-      style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
       <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#10B981', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>🤖</div>
       <div style={{ padding: '0.875rem 1.125rem', background: 'white', borderRadius: '1rem 1rem 1rem 0.25rem', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
         <span style={{ display: 'inline-flex', gap: 4 }}>
-          {[0, 0.2, 0.4].map(delay => (
-            <span key={delay} style={{ width: 6, height: 6, borderRadius: '50%', background: '#9CA3AF', animation: `bounce 1.2s ${delay}s infinite` }} />
-          ))}
+          {[0, 0.2, 0.4].map(d => <span key={d} style={{ width: 6, height: 6, borderRadius: '50%', background: '#9CA3AF', animation: `bounce 1.2s ${d}s infinite` }} />)}
         </span>
       </div>
     </motion.div>
@@ -274,7 +165,8 @@ function EmptyState() {
       {!GATEWAY_URL && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
           style={{ marginTop: '1.5rem', padding: '1rem', background: 'rgba(239,68,68,0.1)', borderRadius: '0.75rem', color: '#DC2626', fontSize: '0.875rem' }}>
-          ⚠️ 未配置后端地址（VITE_GATEWAY_URL），请在 Vercel 环境变量中设置
+          ⚠️ 未配置后端地址（VITE_GATEWAY_URL）<br />
+          请在 Vercel 环境变量中设置为你的 Railway Gateway 地址
         </motion.div>
       )}
     </div>
@@ -297,11 +189,7 @@ export default function App() {
 
   const currentSession = currentSessionId ? sessions[currentSessionId] : null
   const messages = currentSession?.messages ?? []
-
-  const trendData = useMemo(() => {
-    const userMsgs = messages.filter(m => m.role === 'user').slice(-6)
-    return userMsgs.map((m, i) => ({ index: i, value: EMOTION_VALUES[m.emotion] ?? 60, emotion: m.emotion }))
-  }, [messages])
+  const trendData = useEmotionTrend(messages)
 
   useEffect(() => {
     if (Object.keys(sessions).length > 0) saveSessions(sessions)
@@ -312,8 +200,7 @@ export default function App() {
   }, [messages])
 
   const handleSend = useCallback(async () => {
-    if (!input.trim() || streaming || !GATEWAY_URL) return
-
+    if (!input.trim() || streaming) return
     const text = input.trim()
     setInput('')
     setError(null)
@@ -330,14 +217,9 @@ export default function App() {
 
     const { emotion, prob } = detectEmotion(text)
     const userMsg: Message = { id: crypto.randomUUID(), role: 'user', content: text, emotion, emotionProb: prob, timestamp: Date.now() }
-
-    setSessions(prev => ({
-      ...prev,
-      [sessionId!]: { ...prev[sessionId!], messages: [...prev[sessionId!].messages, userMsg] },
-    }))
+    setSessions(prev => ({ ...prev, [sessionId!]: { ...prev[sessionId!], messages: [...prev[sessionId!].messages, userMsg] } }))
 
     setStreaming(true)
-
     try {
       const result = await apiChat(sessionId!, text, sessions[sessionId!]?.messages ?? [])
       const assistantMsg: Message = {
@@ -347,48 +229,24 @@ export default function App() {
         emotionProb: result.emotion_prob || result.emotionProb || 0.8,
         timestamp: Date.now(),
       }
-      setSessions(prev => ({
-        ...prev,
-        [sessionId!]: { ...prev[sessionId!], messages: [...prev[sessionId!].messages, assistantMsg] },
-      }))
+      setSessions(prev => ({ ...prev, [sessionId!]: { ...prev[sessionId!], messages: [...prev[sessionId!].messages, assistantMsg] } }))
     } catch (e) {
       setError(e instanceof Error ? e.message : '发送失败，请稍后重试')
-      const config = EMOTION_CONFIG[emotion]
-      const fallbackMsg: Message = {
-        id: crypto.randomUUID(), role: 'assistant', content: config?.advice || '我在这里，愿意听你说。',
-        emotion, emotionProb: prob, timestamp: Date.now(),
-      }
-      setSessions(prev => ({
-        ...prev,
-        [sessionId!]: { ...prev[sessionId!], messages: [...prev[sessionId!].messages, fallbackMsg] },
-      }))
+      const fallback = EMOTION_CONFIG[emotion]
+      const fallbackMsg: Message = { id: crypto.randomUUID(), role: 'assistant', content: fallback?.advice || '我在这里，愿意听你说。', emotion, emotionProb: prob, timestamp: Date.now() }
+      setSessions(prev => ({ ...prev, [sessionId!]: { ...prev[sessionId!], messages: [...prev[sessionId!].messages, fallbackMsg] } }))
     } finally {
       setStreaming(false)
     }
-  }, [input, streaming, currentSessionId, sessions, GATEWAY_URL])
-
-  const startNewSession = () => { setCurrentSessionId(null); setSidebarOpen(false) }
-
-  const switchSession = (id: string) => { setCurrentSessionId(id); setSidebarOpen(false) }
-
-  const clearCurrentSession = () => {
-    if (!currentSessionId) return
-    const updated = { ...sessions }
-    delete updated[currentSessionId]
-    setSessions(updated)
-    setCurrentSessionId(null)
-  }
+  }, [input, streaming, currentSessionId, sessions])
 
   const currentEmotion = messages.length > 0 ? (messages[messages.length - 1].emotion || 'neutral') : 'neutral'
 
   return (
     <div className="app">
-      {/* Sidebar Overlay */}
       <AnimatePresence>
-        {sidebarOpen && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            onClick={() => setSidebarOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 99 }} />
-        )}
+        {sidebarOpen && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSidebarOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 99 }} />}
       </AnimatePresence>
 
       {/* Sidebar */}
@@ -398,13 +256,13 @@ export default function App() {
           <h2 style={{ fontSize: '1.125rem', fontWeight: 600, color: '#374151' }}>对话历史</h2>
           <button onClick={() => setSidebarOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={20} color="#6B7280" /></button>
         </div>
-        <button onClick={startNewSession}
+        <button onClick={() => { setCurrentSessionId(null); setSidebarOpen(false) }}
           style={{ width: '100%', padding: '0.625rem', background: '#8B5CF6', color: 'white', border: 'none', borderRadius: '0.75rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontWeight: 500, marginBottom: '1rem' }}>
           <Plus size={18} /> 新对话
         </button>
         <div>
           {Object.values(sessions).sort((a, b) => b.createdAt - a.createdAt).map(session => (
-            <button key={session.id} onClick={() => switchSession(session.id)}
+            <button key={session.id} onClick={() => { setCurrentSessionId(session.id); setSidebarOpen(false) }}
               style={{ width: '100%', padding: '0.75rem', marginBottom: '0.5rem', background: session.id === currentSessionId ? 'rgba(139,92,246,0.1)' : 'transparent', border: 'none', borderRadius: '0.5rem', cursor: 'pointer', textAlign: 'left' as const }}>
               <div style={{ fontSize: '0.875rem', fontWeight: 500, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{session.title}</div>
               <div style={{ fontSize: '0.75rem', color: '#9CA3AF', marginTop: '0.25rem' }}>{session.messages.length} 条消息</div>
@@ -422,7 +280,12 @@ export default function App() {
             <EmotionBadge emotion={currentEmotion} prob={0.8} size="sm" />
           </div>
           {currentSessionId && (
-            <button onClick={clearCurrentSession} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem' }} title="清空对话">
+            <button onClick={() => {
+              const updated = { ...sessions }
+              delete updated[currentSessionId]
+              setSessions(updated)
+              setCurrentSessionId(null)
+            }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem' }} title="清空对话">
               <Trash2 size={20} color="#9CA3AF" />
             </button>
           )}
@@ -436,9 +299,7 @@ export default function App() {
         {/* Messages */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           {messages.length === 0 ? <EmptyState /> : (
-            <AnimatePresence>
-              {messages.map(msg => <MessageBubble key={msg.id} msg={msg} />)}
-            </AnimatePresence>
+            <AnimatePresence>{messages.map(msg => <MessageBubble key={msg.id} msg={msg} />)}</AnimatePresence>
           )}
           {streaming && <TypingIndicator />}
           {error && (
@@ -457,10 +318,10 @@ export default function App() {
             <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
               placeholder="说出你的心情..." rows={1}
-              style={{ flex: 1, padding: '0.75rem 1rem', borderRadius: '1.25rem', border: '1.5px solid #E5E7EB', fontSize: '0.9375rem', resize: 'none', outline: 'none', fontFamily: 'inherit', lineHeight: 1.5, maxHeight: '8rem', overflowY: 'auto', transition: 'border-color 0.2s' }}
-            />
-            <motion.button onClick={handleSend} disabled={!input.trim() || streaming || !GATEWAY_URL} whileTap={{ scale: 0.95 }}
-              style={{ width: 48, height: 48, borderRadius: '50%', background: input.trim() && !streaming && GATEWAY_URL ? '#8B5CF6' : '#E5E7EB', border: 'none', cursor: input.trim() && !streaming && GATEWAY_URL ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }}>
+              style={{ flex: 1, padding: '0.75rem 1rem', borderRadius: '1.25rem', border: '1.5px solid #E5E7EB', fontSize: '0.9375rem', resize: 'none', outline: 'none', fontFamily: 'inherit', lineHeight: 1.5, maxHeight: '8rem', overflowY: 'auto', transition: 'border-color 0.2s' }} />
+            <motion.button onClick={handleSend} disabled={!input.trim() || streaming}
+              whileTap={{ scale: 0.95 }}
+              style={{ width: 48, height: 48, borderRadius: '50%', background: input.trim() && !streaming ? '#8B5CF6' : '#E5E7EB', border: 'none', cursor: input.trim() && !streaming ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }}>
               <Send size={20} color="white" />
             </motion.button>
           </div>
@@ -469,10 +330,7 @@ export default function App() {
       </div>
 
       <style>{`
-        @keyframes bounce {
-          0%, 80%, 100% { transform: translateY(0); }
-          40% { transform: translateY(-6px); }
-        }
+        @keyframes bounce { 0%, 80%, 100% { transform: translateY(0); } 40% { transform: translateY(-6px); } }
         .app { display: flex; height: 100vh; background: linear-gradient(135deg, #fdf4f4 0%, #fef9f3 100%); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
         .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
         textarea:focus { border-color: #8B5CF6 !important; }
