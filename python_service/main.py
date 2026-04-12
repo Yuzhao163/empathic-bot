@@ -101,11 +101,59 @@ if not EMOTION_LEXICON:
         "neutral":  {"prob": 0.70, "emoji": "🌿", "advice": "🌿 继续说吧。", "keywords": []},
     }
     PRIORITY_KW = {
-        "angry":    ["生气", "愤怒", "讨厌", "烦", "angry", "hate", "furious", "mad", "rage", "骂"],
-        "sad":      ["哭", "泪", "分手", "失恋", "sad", "crying", "lonely", "孤独"],
-        "anxious":  ["焦虑", "担心", "害怕", "紧张", "anxious", "worried", "scared", "压力", "考研"],
-        "positive": ["开心", "高兴", "快乐", "棒", "happy", "great", "wonderful", "love", "joy", "太好了"],
-        "negative": ["难过", "伤心", "痛苦", "抑郁", "崩溃", "sad", "hurt", "depressed", "绝望"],
+        # 愤怒 — 包含中文口语、英文及变体
+        "angry":    [
+            "生气", "愤怒", "讨厌", "烦", "angry", "hate", "furious", "mad", "rage", "骂",
+            "火大", "气抖", "发抖", "忍无可忍", "无赖", "嚣张", "假货", "绕远", "拒退货",
+            "投诉", "讨说法", "太过分", "气死人", "素质差", "可恨", "可恶", "恶心",
+            "塌房", "骗子", "偷", "插队", "跑路", "健身房跑", "绕路", "拒退款",
+            "差评", "不公平", "冤枉", "委屈", "素质低", "丢人",
+            "furious", "outraged", "livid", "infuriated", "how dare", "unacceptable",
+            "rear-ended", "overbooked", "overcharged", "scammed", "ripped off",
+        ],
+        # 悲伤 — 包含失去、离别、身心痛苦
+        "sad":      [
+            "哭", "泪", "分手", "失恋", "sad", "crying", "lonely", "孤独",
+            "去世", "逝世", "病逝", "走了", "没了", "离开", "失去",
+            "绝交", "流产", "确诊", "早产", "心碎", "肾衰", "被骗",
+            "伤心", "悲痛", "哀伤", "沮丧", "失落", "绝望", "崩溃", "无助", "无望",
+            "黑心", "合伙人骗", "背叛", "背叛", "被背叛",
+            "depressed", "heartbroken", "devastated", "grief", "mournful",
+            "lonely", "heartache", "passed away", "lost", "betrayed",
+        ],
+        # 焦虑 — 包含担忧、压力、失眠、不确定
+        "anxious":  [
+            "焦虑", "担心", "害怕", "紧张", "不安", "压力", "考研",
+            "anxious", "worried", "scared", "失眠", "睡不着", "nervous",
+            "慌", "慌乱", "恐慌", "惧怕", "心神不宁", "惶恐", "没底", "没把握",
+            "不确定", "悬着", "忐忑", "心慌", "七上八下",
+            "复习不进去", "面试没准备", "答辩没做完", "摇号", "断供",
+            "被裁", "失业", "移民申请", "体检异常", "租房不确定",
+            "panic", "dread", "uneasy", "apprehensive", "overwhelmed", "stressed",
+            "burned out", "runway", "deadline", "waiting for result",
+            "experiment failing", "visa expires", "laid off",
+        ],
+        # 积极 — 包含成就、好运、欢乐
+        "positive": [
+            "开心", "高兴", "快乐", "棒", "太好了", "happy", "great", "wonderful", "love", "joy",
+            "激动", "兴奋", "喜悦", "欢乐", "愉快", "欣喜", "振奋",
+            "太棒了", "超开心", "美滋滋", "乐开花", "好运", "顺利",
+            "满分", "全优", "全奖", "达标", "涨停", "拿到offer", "升职", "融资",
+            "脱单", "通过", "全红", "上岸", "拿到", "成功", "拿到融资",
+            "dream school", "got funded", "promoted", "perfect score", "won",
+            "excellent", "thrilled", "delighted", "accomplished", "championship",
+            "graduated", "honors", "funded", "breakthrough",
+        ],
+        # 消极（难过/郁闷/负面状态）
+        "negative": [
+            "难过", "伤心", "痛苦", "抑郁", "崩溃", "绝望", "sad", "hurt", "depressed",
+            "诸事不顺", "谷底", "撑不住", "失败", "挫折", "打击",
+            "困境", "逆境", "倒霉", "背运", "不顺", "雪上加霜", "祸不单行",
+            "last day", "石沉大海", "被裁", "裁员", "失业", "负债", "欠债",
+            "逾期", "冻结", "投资失败", "亏本", "被骗", "赔钱",
+            "lost", "failed", "rejected", "humiliated", "devastated", "hopeless",
+            "discriminated", "bullied", "harassed", "exploited",
+        ],
     }
 
 EMPATHY_RESPONSES = {
@@ -140,15 +188,28 @@ SYSTEM_PROMPT = """你是一个温暖、有同理心的情感支持助手。
 
 
 def detect_emotion(text: str) -> tuple[str, float]:
+    """
+    情绪检测 — 固定优先级顺序，避免 dict 迭代顺序不稳定问题
+    优先级: angry > anxious > negative > sad > positive
+    """
     text_lower = text.lower()
-    for emotion, words in PRIORITY_KW.items():
+    # 固定优先级顺序（覆盖关键词多的放前面）
+    priority = [
+        ("angry",    PRIORITY_KW.get("angry",    [])),
+        ("anxious",  PRIORITY_KW.get("anxious",  [])),
+        ("negative", PRIORITY_KW.get("negative", [])),
+        ("sad",      PRIORITY_KW.get("sad",      [])),
+        ("positive", PRIORITY_KW.get("positive", [])),
+    ]
+    for emotion, words in priority:
         for word in words:
             if word in text_lower:
                 return emotion, EMOTION_LEXICON[emotion]["prob"]
+    # fallback: 检查 EMOTION_LEXICON.keywords（短词精确匹配）
     for emotion, data in EMOTION_LEXICON.items():
         if emotion == "neutral":
             continue
-        for word in data["keywords"]:
+        for word in data.get("keywords", []):
             if len(word) >= 2 and word in text_lower:
                 return emotion, data["prob"]
     return "neutral", 0.70

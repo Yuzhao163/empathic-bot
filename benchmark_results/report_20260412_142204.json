@@ -1,0 +1,204 @@
+{
+  "timestamp": "2026-04-12T14:22:04Z",
+  "total_scenarios": 1000,
+  "emotion_accuracy": 0.829,
+  "emotion_results": {
+    "total": 1000,
+    "correct": 829,
+    "accuracy": 0.829,
+    "by_emotion": {
+      "sad": {
+        "total": 202,
+        "correct": 182,
+        "examples": [
+          {
+            "text": "nothing seems to go right lately",
+            "detected": "neutral"
+          },
+          {
+            "text": "i had to put my cat to sleep",
+            "detected": "neutral"
+          },
+          {
+            "text": "my best friend moved abroad",
+            "detected": "neutral"
+          }
+        ]
+      },
+      "positive": {
+        "total": 206,
+        "correct": 164,
+        "examples": [
+          {
+            "text": "终于把拖延的项目做完了",
+            "detected": "neutral"
+          },
+          {
+            "text": "今天工作汇报特别完美",
+            "detected": "neutral"
+          },
+          {
+            "text": "考过了雅思8分",
+            "detected": "neutral"
+          }
+        ]
+      },
+      "negative": {
+        "total": 195,
+        "correct": 138,
+        "examples": [
+          {
+            "text": "my dog ran away and we can't find him",
+            "detected": "sad"
+          },
+          {
+            "text": "所有希望都破灭了",
+            "detected": "neutral"
+          },
+          {
+            "text": "感情问题完全糟糕了",
+            "detected": "neutral"
+          }
+        ]
+      },
+      "angry": {
+        "total": 187,
+        "correct": 165,
+        "examples": [
+          {
+            "text": "快递被冒领了",
+            "detected": "neutral"
+          },
+          {
+            "text": "the package was clearly opened and items were take",
+            "detected": "neutral"
+          },
+          {
+            "text": "被理发师剪毁了",
+            "detected": "neutral"
+          }
+        ]
+      },
+      "anxious": {
+        "total": 192,
+        "correct": 171,
+        "examples": [
+          {
+            "text": "明天答辩PPT还没做完",
+            "detected": "neutral"
+          },
+          {
+            "text": "i have to present to the board next week",
+            "detected": "neutral"
+          },
+          {
+            "text": "汇报时老板一直皱眉",
+            "detected": "neutral"
+          }
+        ]
+      },
+      "neutral": {
+        "total": 10,
+        "correct": 9,
+        "examples": [
+          {
+            "text": "今天走了多少步",
+            "detected": "sad"
+          }
+        ]
+      },
+      "mixed": {
+        "total": 8,
+        "correct": 0,
+        "examples": [
+          {
+            "text": "i'm happy about the bonus but worried about the re",
+            "detected": "positive"
+          },
+          {
+            "text": "我今天特别开心因为项目上线了，但同时又很焦虑因为老板的评价还没出来",
+            "detected": "anxious"
+          },
+          {
+            "text": "老公出差一个月了，一个人带孩子累得崩溃",
+            "detected": "negative"
+          }
+        ]
+      }
+    }
+  },
+  "persona_results": [
+    {
+      "id": "student_good",
+      "name": "开心学生",
+      "setup_correct": true,
+      "setup_emotion": "positive",
+      "expected_emotion": "positive",
+      "rounds": 3,
+      "avg_empathy_score": 0.2
+    },
+    {
+      "id": "worker_sad",
+      "name": "难过职场人",
+      "setup_correct": false,
+      "setup_emotion": "neutral",
+      "expected_emotion": "angry",
+      "rounds": 3,
+      "avg_empathy_score": 0.2
+    },
+    {
+      "id": "exam_anxious",
+      "name": "焦虑考生",
+      "setup_correct": true,
+      "setup_emotion": "anxious",
+      "expected_emotion": "anxious",
+      "rounds": 3,
+      "avg_empathy_score": 0.33
+    },
+    {
+      "id": "girlfriend_sad",
+      "name": "分手女生",
+      "setup_correct": true,
+      "setup_emotion": "sad",
+      "expected_emotion": "sad",
+      "rounds": 3,
+      "avg_empathy_score": 0.2
+    },
+    {
+      "id": "boss_angry",
+      "name": "愤怒老板",
+      "setup_correct": true,
+      "setup_emotion": "angry",
+      "expected_emotion": "angry",
+      "rounds": 3,
+      "avg_empathy_score": 0.47
+    },
+    {
+      "id": "parent_worried",
+      "name": "焦虑家长",
+      "setup_correct": true,
+      "setup_emotion": "anxious",
+      "expected_emotion": "anxious",
+      "rounds": 3,
+      "avg_empathy_score": 0.2
+    },
+    {
+      "id": "elderly_lonely",
+      "name": "孤独老人",
+      "setup_correct": false,
+      "setup_emotion": "neutral",
+      "expected_emotion": "sad",
+      "rounds": 3,
+      "avg_empathy_score": 0.2
+    },
+    {
+      "id": "startup_positive",
+      "name": "创业成功者",
+      "setup_correct": true,
+      "setup_emotion": "positive",
+      "expected_emotion": "positive",
+      "rounds": 3,
+      "avg_empathy_score": 0.2
+    }
+  ]
+}
