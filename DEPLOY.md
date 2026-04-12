@@ -1,83 +1,67 @@
 # 部署指南
 
-## 方案：Railway (后端) + Vercel (前端)
+## 第一步：GitHub Fork 仓库
 
-**Railway**：有免费额度（500小时/月），关联 GitHub 自动部署，支持 Redis 插件
-**Vercel**：前端完全免费，静态部署
+> 仓库已经是公开的，直接在 GitHub 页面上操作，无需 token
 
----
-
-## 第一步：Fork 代码到 GitHub
-
-1. 把 `empathic-bot/` 目录 push 到你 GitHub（新建仓库）
-2. 仓库设为 public（或 private 也可以）
+1. 打开 https://github.com/Yuzhao163/empathic-bot
+2. 点 **Fork** → 创建你个人的副本
+3. 你的新仓库地址会是 `https://github.com/Yuzhao163/empathic-bot`（变为你用户名）
 
 ---
 
 ## 第二步：Railway 部署后端
 
-### 2.1 创建项目
+### 2.1 关联 GitHub 仓库
 
-1. 打开 [railway.app](https://railway.app)
-2. Login with GitHub
-3. **New Project → Deploy from GitHub repo** → 选你的仓库
-4. 选择 `gateway/` 目录作为根目录
+1. 打开 [Railway](https://railway.app)
+2. **Login with GitHub**（不需要 PAT，用 OAuth）
+3. **New Project → Deploy from GitHub repo** → 选择 `empathic-bot`
+4. Railway 会自动检测 Go + Docker 类型
 
 ### 2.2 添加 Redis
 
-- Railway 插件面板 → **Add Plugin → Redis** → 自动注入 `REDIS_URL`
+Railway 面板 → **New Plugin → Redis** → 点一下自动注入 `REDIS_URL`
 
 ### 2.3 设置环境变量
 
-- `OPENAI_API_KEY` = 你的 key
+Project Settings → Variables：
+- `OPENAI_API_KEY` = `sk-xxx`
 - `LLM_MODEL` = `gpt-4o`
-- `REDIS_URL` = 自动从插件注入（不需要手动填）
+- `REDIS_URL` = 自动从 Redis 插件注入
 
-### 2.4 根目录配置
+### 2.4 记录 Gateway 地址
 
-Railway 默认用 Go 编译，`gateway/` 下已有 `go.mod`，Railway 会自动识别。
-
-**端口**：`8080`（Go 默认）
-
-### 2.5 等待部署完成
-
-Railway 会给一个 URL，例如：`https://empathic-bot.up.railway.app`
+部署完成后，Railway 给一个 URL，例如 `https://empathic-bot.up.railway.app`
+复制这个地址，后面填入 Vercel 环境变量。
 
 ---
 
 ## 第三步：Vercel 部署前端
 
-### 3.1 修改 API 地址
+### 3.1 创建 Vercel 项目
 
-在 `.env.production` 里指向 Railway 地址：
-```
-VITE_GATEWAY_URL=https://你的railway-app.railway.app
-```
+1. 打开 [vercel.com](https://vercel.com)
+2. **Add New → Project**
+3. **Import Git Repository** → 选择你的 `empathic-bot` 仓库
+4. Framework: **Vite**
+5. Root Directory: `frontend`
+6. Build Command: `npm run build`
+7. Output Directory: `dist`
 
-### 3.2 Vercel 创建项目
+### 3.2 设置环境变量
 
-1. [vercel.com](https://vercel.com) → New Project → Import GitHub 仓库
-2. Framework: Next.js 或 Vite
-3. Root Directory: `frontend`
-4. Build Command: `npm run build`
-5. Environment Variables: `VITE_GATEWAY_URL=https://xxx.railway.app`
+Environment Variables：
+- `VITE_GATEWAY_URL` = `https://xxx.railway.app`（Railway 给的地址，不带引号）
 
----
+### 3.3 Deploy
 
-## 第四步：验证
-
-- 前端：`vercel.app` 域名
-- 健康检查：`railway.app/health`
-- 聊天：`railway.app/api/chat`
+点 **Deploy**，等待 2 分钟。
 
 ---
 
-## 费用说明
+## 验证
 
-| 服务 | 用量 | 费用 |
-|------|------|------|
-| Railway Go | <500h/月 | 免费 |
-| Railway Redis | 小数据 | 免费 |
-| Vercel | <100h/day | 免费 |
-
-OpenAI API key 自备（按量计费）
+- 前端：`vercel.app 域名`
+- 后端健康：`railway.app/health`
+- 聊天：`railway.app/api/chat`（POST JSON）

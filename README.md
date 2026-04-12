@@ -2,52 +2,33 @@
 
 多语言技术栈实现的 AI 情感助手，参考十大开源项目架构。
 
+## 🚀 快速部署
+
+### 前端（Vercel）
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new)
+
+1. Fork 本仓库
+2. Vercel Import → 选择 `frontend/`
+3. 设置 `VITE_GATEWAY_URL` 为 Railway Gateway 地址
+
+### 后端（Railway）
+
+[![Deploy on Railway](https://railway.app/button)](https://railway.app/new)
+
+1. Fork 本仓库
+2. Railway → New Project → Deploy from GitHub
+3. 添加 Redis 插件
+4. 设置 `OPENAI_API_KEY`
+
+详细步骤：[DEPLOY.md](DEPLOY.md)
+
 ## 技术栈
 
-| 服务 | 语言 | 职责 | 参考项目 |
-|------|------|------|---------|
-| Gateway | Go | API 网关 + WebSocket | Ollama Scheduler |
-| LLM Service | Python | 情绪感知回复生成 | LangChain LCEL |
-| Emotion Engine | Java | 情绪识别 NLP | Transformers |
-| Frontend | TypeScript/React | 对话界面 | Gradio Blocks |
-
-## 快速启动
-
-```bash
-# 启动全部服务
-docker-compose up -d
-
-# 仅启动前端（开发）
-cd frontend && npm install && npm run dev
-```
-
-## 架构
-
-```
-用户输入 → Go Gateway → Python LLM Service → 流式推送 → 前端
-                ↓
-          Java Emotion Engine（并行）
-                ↓
-          Redis 会话存储
-```
-
-## API 端点
-
-- `POST /api/chat` — 发送消息
-- `GET /api/history/{session_id}` — 获取历史
-- `WebSocket /ws/chat` — 流式对话
-- `POST /api/emotion/analyze` — 情绪分析
-
-## 环境变量
-
-```env
-# Python LLM
-OPENAI_API_KEY=sk-...
-LLM_MODEL=gpt-4o
-
-# Java Emotion
-EMOTION_MODEL_PATH=models/emotion_classifier
-
-# Redis
-REDIS_URL=redis://localhost:6379
-```
+| 服务 | 语言 | 参考项目 |
+|------|------|---------|
+| API 网关 | Go | Ollama Scheduler |
+| LLM 服务 | Python | LangChain LCEL |
+| 情绪分析 | Java | Transformers |
+| 前端 | TypeScript/React | Gradio Blocks |
+</parameter>
