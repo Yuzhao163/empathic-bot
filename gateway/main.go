@@ -317,7 +317,7 @@ func NewScheduler() *Scheduler {
 		s.wg.Add(1)
 		go s.worker(i)
 	}
-	// 定期清理 stale pendingOnce entries
+	// 定期清理 stale pendingOnce entries（通过 context 取消，无需 WaitGroup）
 	go s.cleanupStaleEntries()
 	return s
 }
@@ -338,9 +338,9 @@ func (s *Scheduler) worker(id int) {
 }
 
 func (s *Scheduler) Shutdown() {
-	s.cancel()
-	close(s.pendingCh)
-	s.wg.Wait()
+	s.cancel()         // 关闭 context，cleanupStaleEntries 自动退出
+	close(s.pendingCh) // 关闭 channel，worker 全部退出
+	s.wg.Wait()        // 等待所有 worker 退出
 }
 
 // cleanupStaleEntries removes timed-out entries from pendingOnce every 5 minutes
