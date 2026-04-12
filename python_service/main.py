@@ -17,6 +17,20 @@ from openai import OpenAI
 
 from dataclasses import asdict
 from memory import MemoryManager
+from auth import (
+    register_with_email,
+    login_with_email,
+    login_as_anonymous,
+    login_with_feishu,
+    upgrade_anonymous_account,
+    verify_session,
+    get_user_info,
+    revoke_session,
+    create_magic_link,
+    verify_magic_link,
+    get_account_by_email,
+    link_anonymous_to_account,
+)
 
 # ============================================================================
 # Config
@@ -492,6 +506,142 @@ async def delete_memory(session_id: str, level: str = "all"):
         if path.exists():
             path.unlink()
     return {"ok": True, "deleted": level}
+
+
+# =============================================================================
+# Auth Endpoints
+# =============================================================================
+
+
+@app.post("/auth/register")
+async def auth_register(req: Request):
+    """邮箱密码注册"""
+    body = await req.json()
+    email = body.get("email", "").strip()
+    password = body.get("password", "")
+    device_uuid = body.get("device_uuid", "")
+    display_name = body.get("display_name", "")
+
+    if not email or not password:
+        raise HTTPException(status_code=400, detail="email and password required")
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="password must be at least 6 characters")
+
+    try:
+        # If device_uuid provided, upgrade anonymous account
+        if device_uuid:
+            account, token = upgrade_anonymous_account(device_uuid, email, password, display_name or None)
+        else:
+            account, token = register_with_email(email, password, display_name or None)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+    return {"token": token, "user": get_user_info(account["user_id"])}
+
+
+@app.post("/auth/login")
+async def auth_login(req: Request):
+    """邮箱密码登录"""
+    body = await req.json()
+    email = body.get("email", "").strip()
+    password = body.get("password", "")
+
+    if not email or not password:
+        raise HTTPException(status_code=400, detail="email and password required")
+
+    try:
+        account, token = login_with_email(email, password)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    return {"token": token, "user": get_user_info(account["user_id"])}
+
+
+@app.post("/auth/magic-link")
+async def request_magic_link(req: Request):
+    """请求 Magic Link（发送邮箱）"""
+    body = await req.json()
+    email = body.get("email", "").strip()
+    if not email:
+        raise HTTPException(status_code=400, detail="email required")
+
+    token = create_magic_link(email)
+    # In production: send email with link like https://app.com/auth/verify?token=xxx
+    # For now: return token directly (development only — remove in production!)
+    magic_url = f"https://empathic-bot.vercel.app/auth/verify?token={token}"
+    return {"magic_link": magic_url, "note": "In production this sends an email"}
+
+
+@app.post("/auth/verify-magic")
+async def verify_magic(req: Request):
+    """验证 Magic Link 并登录"""
+    body = await req.json()
+    token = body.get("token", "").strip()
+    device_uuid = body.get("device_uuid", "")
+
+    email = verify_magic_link(token)
+    if not email:
+        raise HTTPException(status_code=400, detail="Invalid or expired magic link")
+
+    # Find or create account
+    account = get_account_by_email(email)
+    if not account:
+        account, _ = register_with_email(email, password="", display_name=None)
+    token, _ = issue_session(account["user_id"])
+
+    # Link to device if provided
+    if device_uuid:
+        link_anonymous_to_account(device_uuid, account["user_id"])
+
+    return {"token": token, "user": get_user_info(account["user_id"])}
+
+
+@app.post("/auth/anonymous")
+async def auth_anonymous(req: Request):
+    """匿名登录（设备 UUID）"""
+    body = await req.json()
+    device_uuid = body.get("device_uuid", "")
+    if not device_uuid:
+        raise HTTPException(status_code=400, detail="device_uuid required")
+
+    account, token = login_as_anonymous(device_uuid)
+    return {"token": token, "user": get_user_info(account["user_id"])}
+
+
+@app.post("/auth/feishu")
+async def auth_feishu(req: Request):
+    """飞书登录（前端传 open_id）"""
+    body = await req.json()
+    feishu_id = body.get("feishu_open_id", "")
+    display_name = body.get("display_name", "")
+
+    if not feishu_id:
+        raise HTTPException(status_code=400, detail="feishu_open_id required")
+
+    account, token = login_with_feishu(feishu_id, display_name or None)
+    return {"token": token, "user": get_user_info(account["user_id"])}
+
+
+@app.get("/auth/me")
+async def auth_me(token: str = None):
+    """获取当前登录用户信息"""
+    if not token:
+        raise HTTPException(status_code=401, detail="token required")
+    session = verify_session(token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+    user = get_user_info(session["user_id"])
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+@app.post("/auth/logout")
+async def auth_logout(token: str = None):
+    """登出"""
+    if token:
+        revoke_session(token)
+    return {"ok": True}
 
 
 if __name__ == "__main__":
