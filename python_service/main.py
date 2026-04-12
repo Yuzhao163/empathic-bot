@@ -28,9 +28,8 @@ from auth import (
     revoke_session,
     create_magic_link,
     verify_magic_link,
-    get_account_by_email,
-    link_anonymous_to_account,
 )
+from tool_registry import registry, ToolDef, MCPServer, SkillDef
 
 # ============================================================================
 # Config
@@ -641,6 +640,156 @@ async def auth_logout(token: str = None):
     """登出"""
     if token:
         revoke_session(token)
+    return {"ok": True}
+
+
+# =============================================================================
+# Tool Management Endpoints
+# =============================================================================
+
+
+@app.get("/tools")
+async def list_tools(category: str = None):
+    """列出所有可用工具"""
+    tools = registry.list_tools(category=category)
+    return {
+        "tools": [
+            {
+                "id": t.id,
+                "name": t.name,
+                "display_name": t.display_name,
+                "description": t.description,
+                "category": t.category,
+                "icon": t.icon,
+                "is_builtin": t.is_builtin,
+                "enabled": t.enabled,
+                "secret_keys": t.secret_keys,
+                "config_schema": t.config_schema,
+            }
+            for t in tools
+        ]
+    }
+
+
+@app.post("/tools")
+async def register_tool(req: Request):
+    """注册用户自定义工具"""
+    body = await req.json()
+    body.pop("is_builtin", None)  # 用户不能伪造内置工具
+    tool = ToolDef(**body)
+    tool_id = registry.register_tool(tool)
+    return {"tool_id": tool_id}
+
+
+@app.delete("/tools/{tool_id}")
+async def delete_tool(tool_id: str):
+    """删除用户自定义工具"""
+    tool = registry.get_tool(tool_id)
+    if not tool:
+        raise HTTPException(status_code=404, detail="Tool not found")
+    if tool.is_builtin:
+        raise HTTPException(status_code=403, detail="Cannot delete built-in tools")
+    registry.unregister_tool(tool_id)
+    return {"ok": True}
+
+
+@app.patch("/tools/{tool_id}")
+async def update_tool(tool_id: str, req: Request):
+    """更新工具（启用/禁用/修改配置）"""
+    tool = registry.get_tool(tool_id)
+    if not tool:
+        raise HTTPException(status_code=404, detail="Tool not found")
+    body = await req.json()
+    if "enabled" in body:
+        registry.set_tool_enabled(tool_id, body["enabled"])
+    return {"ok": True}
+
+
+@app.post("/tools/{tool_id}/test")
+async def test_tool(tool_id: str, req: Request):
+    """测试用户工具（用测试参数调用）"""
+    body = await req.json()
+    params = body.get("params", {})
+    try:
+        result = registry.call_tool(tool_id, params)
+        return {"ok": True, "result": result}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# =============================================================================
+# MCP Server Management
+# =============================================================================
+
+
+@app.get("/mcp")
+async def list_mcp():
+    """列出所有 MCP Server"""
+    servers = registry.list_mcp_servers()
+    return {
+        "servers": [
+            {
+                "id": s.id,
+                "name": s.name,
+                "description": s.description,
+                "enabled": s.enabled,
+                "command": s.command,
+                "url": s.url,
+            }
+            for s in servers
+        ]
+    }
+
+
+@app.post("/mcp")
+async def register_mcp(req: Request):
+    """注册 MCP Server"""
+    body = await req.json()
+    server = MCPServer(**body)
+    server_id = registry.register_mcp(server)
+    return {"server_id": server_id}
+
+
+@app.delete("/mcp/{server_id}")
+async def delete_mcp(server_id: str):
+    registry.unregister_mcp(server_id)
+    return {"ok": True}
+
+
+# =============================================================================
+# Skill Management
+# =============================================================================
+
+
+@app.get("/skills")
+async def list_skills():
+    """列出所有 Skill"""
+    skills = registry.list_skills()
+    return {
+        "skills": [
+            {
+                "id": s.id,
+                "name": s.name,
+                "description": s.description,
+                "enabled": s.enabled,
+            }
+            for s in skills
+        ]
+    }
+
+
+@app.post("/skills")
+async def register_skill(req: Request):
+    """注册 Skill"""
+    body = await req.json()
+    skill = SkillDef(**body)
+    skill_id = registry.register_skill(skill)
+    return {"skill_id": skill_id}
+
+
+@app.delete("/skills/{skill_id}")
+async def delete_skill(skill_id: str):
+    registry.unregister_skill(skill_id)
     return {"ok": True}
 
 
