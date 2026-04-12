@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+.env
+.env.local
+.env.production
+
+# Build
+dist/
+build/
+*.exe
+bin/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test
+__pycache__/
+.pytest_cache/
+coverage/
+
+# Misc
+*.tmp
+*.bak
