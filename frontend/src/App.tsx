@@ -14,6 +14,14 @@ import { EMOTION_CONFIG } from './types'
 const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL || ''
 const STORAGE_KEY = 'empathic_sessions'
 const MAX_SESSIONS = 50
+
+// User identity: 优先从URL参数读取飞书open_id，作为长记忆隔离键
+// 格式: https://your-vercel.app?user_id=ou_xxx
+const USER_ID = (() => {
+  const params = new URLSearchParams(window.location.search)
+  return params.get('user_id') || 'anonymous'
+})()
+
 const EMOTION_VALUES: Record<string, number> = {
   positive: 100, negative: 20, anxious: 40, angry: 15, sad: 30, neutral: 60,
 }

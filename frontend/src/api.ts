@@ -1,14 +1,32 @@
 /**
  * API Client — 统一封装，支持 SSE 流式
+ * user_id: 从 URL ?user_id=ou_xxx 参数传入，用于长记忆隔离
  */
 
 import type { ChatResult } from './types'
 
 const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL || ''
 
+// User identity for long-term memory isolation
+const USER_ID = (() => {
+  const params = new URLSearchParams(window.location.search)
+  return params.get('user_id') || 'anonymous'
+})()
+
 function checkUrl() {
   if (!GATEWAY_URL) {
-    console.error('[EmpathicBot] VITE_GATEWAY_URL is not set. See .env.example.')
+    console.error('[EmpathicBot] VITE_GATEWAY_URL is not configured.')
+  }
+}
+
+function buildBody(sessionId: string, message: string, emotion: string, emotionProb: number, history: import('./types').Message[]) {
+  return {
+    session_id: sessionId,
+    user_id: USER_ID,
+    message,
+    context: history.slice(-6),
+    emotion,
+    emotion_prob: emotionProb,
   }
 }
 
@@ -23,7 +41,7 @@ export async function apiChat(
   const res = await fetch(`${GATEWAY_URL}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, context: history.slice(-6), emotion: '', emotion_prob: 0.5 }),
+    body: JSON.stringify(buildBody(sessionId, message, '', 0.5, history)),
   })
 
   if (!res.ok) {
@@ -36,9 +54,6 @@ export async function apiChat(
 
 /**
  * SSE 流式聊天 — 增量渲染
- * onToken: 每收到一个 token 就回调
- * onDone: 流结束时回调（带最终 emotion/advice）
- * onError: 出错时回调
  */
 export async function apiChatStream(
   sessionId: string,
@@ -60,7 +75,7 @@ export async function apiChatStream(
     const res = await fetch(`${GATEWAY_URL}/api/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, context: history.slice(-6), emotion, emotion_prob: emotionProb }),
+      body: JSON.stringify(buildBody(sessionId, message, emotion, emotionProb, history)),
     })
 
     if (!res.ok) {
@@ -80,7 +95,7 @@ export async function apiChatStream(
 
       buffer += decoder.decode(value, { stream: true })
       const lines = buffer.split('\n')
-      buffer = lines.pop() || '' // keep incomplete line in buffer
+      buffer = lines.pop() || ''
 
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue
@@ -95,7 +110,7 @@ export async function apiChatStream(
             onToken(parsed.token)
           }
         } catch {
-          // skip malformed JSON (e.g. partial chunk)
+          // skip malformed JSON
         }
       }
     }

@@ -262,12 +262,12 @@ async def call_llm_stream(prompt: str, message: str):
 
 class ChatRequest(BaseModel):
     session_id: str = ""
+    user_id: str = "anonymous"   # 用于长记忆文件隔离
     message: str
     context: list = []
     emotion: str = "neutral"
     emotion_prob: float = 0.5
-    # memory control
-    memory_level: str = "auto"  # "short" | "medium" | "long" | "auto"
+    memory_level: str = "auto"
 
 
 class ChatResponse(BaseModel):
@@ -292,8 +292,8 @@ async def chat(req: ChatRequest):
     if req.message:
         emotion, emotion_prob = detect_emotion(req.message)
 
-    # Memory management
-    mem = MemoryManager(session_id=req.session_id or "default")
+    # Memory management — user_id 隔离不同用户的长记忆
+    mem = MemoryManager(session_id=req.session_id or "default", user_id=req.user_id)
 
     # Add user message to memory
     mem.add_message("user", req.message, emotion)
@@ -350,8 +350,8 @@ async def chat_stream(req: ChatRequest):
     if req.message:
         emotion, emotion_prob = detect_emotion(req.message)
 
-    # Memory management
-    mem = MemoryManager(session_id=req.session_id or "default")
+    # Memory management — user_id 隔离不同用户的长记忆
+    mem = MemoryManager(session_id=req.session_id or "default", user_id=req.user_id)
     mem.add_message("user", req.message, emotion)
 
     if mem.should_summarize():

@@ -379,9 +379,10 @@ func (s *Scheduler) callLLMService(req *ChatRequest) {
 
 	payload := map[string]any{
 		"session_id": req.SessionID,
-		"message": req.Message,
-		"context": history,
-		"emotion": req.Emotion,
+		"user_id":    c.GetString("user_id"),
+		"message":    req.Message,
+		"context":     history,
+		"emotion":    req.Emotion,
 	}
 
 	var resp *LLMResponse
@@ -550,6 +551,11 @@ func traceMiddleware() gin.HandlerFunc {
 		}
 		c.Set("trace_id", traceID)
 		c.Writer.Header().Set("X-Trace-ID", traceID)
+
+		// 透传用户身份（飞书 sender_id，由飞书插件注入）
+		// 格式：open_id（ou_xxx）
+		userID := c.GetHeader("X-User-ID")
+		c.Set("user_id", userID)
 		c.Next()
 	}
 }
@@ -628,6 +634,7 @@ func handleChatStream(c *gin.Context) {
 	// Proxy to Python SSE stream
 	body, _ := json.Marshal(map[string]any{
 		"session_id":    req.SessionID,
+		"user_id":       c.GetString("user_id"),
 		"message":       req.Message,
 		"context":        req.Context,
 		"emotion":       req.Emotion,
