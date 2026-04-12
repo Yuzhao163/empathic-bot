@@ -130,6 +130,27 @@ function AdviceCard({ emotion }: { emotion: string }) {
   )
 }
 
+const SUGGESTIONS = [
+  '最近有什么事让你感到开心吗？',
+  '愿意多说一点吗？',
+  '这种情况持续多久了？',
+  '有没有试过什么方法缓解？',
+]
+
+function SuggestionChips({ onSelect }: { onSelect: (text: string) => void }) {
+  const { theme } = useTheme()
+  return (
+    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+      {SUGGESTIONS.map(s => (
+        <button key={s} onClick={() => onSelect(s)}
+          style={{ padding: '0.375rem 0.75rem', borderRadius: '9999px', border: `1px solid ${theme.border}`, background: theme.surface, color: theme.text, fontSize: '0.8125rem', cursor: 'pointer' }}>
+          {s}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function MessageBubble({ msg }: { msg: Message }) {
   const { theme } = useTheme()
   const config = EMOTION_CONFIG[msg.emotion] ?? EMOTION_CONFIG.neutral
@@ -376,6 +397,9 @@ export default function App() {
             <AnimatePresence>{messages.map(msg => <MessageBubble key={msg.id} msg={msg} />)}</AnimatePresence>
           )}
           {streaming && <TypingIndicator />}
+          {!streaming && messages.length > 0 && (
+            <SuggestionChips onSelect={(text) => { setInput(text); }} />
+          )}
           {error && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
               style={{ textAlign: 'center', padding: '0.5rem', color: theme.errorColor, fontSize: '0.875rem' }}>
