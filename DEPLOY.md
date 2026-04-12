@@ -1,67 +1,78 @@
 # 部署指南
 
-## 第一步：GitHub Fork 仓库
-
-> 仓库已经是公开的，直接在 GitHub 页面上操作，无需 token
+## 第一步：Fork 仓库
 
 1. 打开 https://github.com/Yuzhao163/empathic-bot
-2. 点 **Fork** → 创建你个人的副本
-3. 你的新仓库地址会是 `https://github.com/Yuzhao163/empathic-bot`（变为你用户名）
+2. 点 **Fork** → 创建你的个人副本
 
 ---
 
 ## 第二步：Railway 部署后端
 
-### 2.1 关联 GitHub 仓库
+### 2.1 关联 GitHub
 
-1. 打开 [Railway](https://railway.app)
-2. **Login with GitHub**（不需要 PAT，用 OAuth）
-3. **New Project → Deploy from GitHub repo** → 选择 `empathic-bot`
-4. Railway 会自动检测 Go + Docker 类型
+1. 打开 [Railway](https://railway.app) → Login with GitHub
+2. **New Project → Deploy from GitHub repo** → 选择 `empathic-bot`
+
+> 注意：Railway 会优先使用 `Dockerfile`，我们的 Gateway 和 Python Service 都有 Dockerfile，会自动构建。
 
 ### 2.2 添加 Redis
 
-Railway 面板 → **New Plugin → Redis** → 点一下自动注入 `REDIS_URL`
+Railway 面板 → **New Plugin → Redis** → 自动注入 `REDIS_URL`
 
 ### 2.3 设置环境变量
 
 Project Settings → Variables：
-- `OPENAI_API_KEY` = `sk-xxx`
-- `LLM_MODEL` = `gpt-4o`
-- `REDIS_URL` = 自动从 Redis 插件注入
 
-### 2.4 记录 Gateway 地址
+| 变量 | 值 |
+|------|-----|
+| `MINIMAX_API_KEY` | 你的 MiniMax API Key |
+| `MINIMAX_BASE_URL` | `https://api.minimaxi.com/v1` |
+| `LLM_MODEL` | `MiniMax-M2.7` |
+| `ALLOWED_ORIGINS` | 你的 Vercel 域名（如 `https://empathic-bot.vercel.app`）|
 
-部署完成后，Railway 给一个 URL，例如 `https://empathic-bot.up.railway.app`
-复制这个地址，后面填入 Vercel 环境变量。
+### 2.4 记录后端地址
+
+Railway 部署完成后给出 URL，例如 `https://empathic-bot.up.railway.app`
+这个地址后面填入 Vercel 环境变量。
 
 ---
 
 ## 第三步：Vercel 部署前端
 
-### 3.1 创建 Vercel 项目
+### 3.1 创建项目
 
-1. 打开 [vercel.com](https://vercel.com)
-2. **Add New → Project**
-3. **Import Git Repository** → 选择你的 `empathic-bot` 仓库
-4. Framework: **Vite**
-5. Root Directory: `frontend`
-6. Build Command: `npm run build`
-7. Output Directory: `dist`
+1. 打开 [vercel.com](https://vercel.com) → **Add New → Project**
+2. Import 你的 `empathic-bot` 仓库
+3. **Root Directory**: `frontend`
+4. **Framework Preset**: `Vite`
+5. **Build Command**: `npm run build`（已预配置）
+6. **Output Directory**: `dist`（已预配置）
 
 ### 3.2 设置环境变量
 
-Environment Variables：
-- `VITE_GATEWAY_URL` = `https://xxx.railway.app`（Railway 给的地址，不带引号）
+| 变量 | 值 |
+|------|-----|
+| `VITE_GATEWAY_URL` | Railway 给的后端地址（如 `https://empathic-bot.up.railway.app`）|
 
 ### 3.3 Deploy
 
-点 **Deploy**，等待 2 分钟。
+点 **Deploy**，约 2 分钟完成。
 
 ---
 
 ## 验证
 
-- 前端：`vercel.app 域名`
-- 后端健康：`railway.app/health`
-- 聊天：`railway.app/api/chat`（POST JSON）
+- 前端：`https://your-project.vercel.app`
+- 后端健康：`https://xxx.railway.app/health`
+- 流式聊天：`POST https://xxx.railway.app/api/chat/stream`
+
+---
+
+## 架构说明
+
+```
+Vercel（前端） → Railway（Gateway + Python + Redis）
+```
+
+前端 JS 直接调用 Railway 后端 API，无需额外代理。
