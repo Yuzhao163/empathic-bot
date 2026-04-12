@@ -5,6 +5,7 @@ EmpathicBot LLM Service
 import os
 import json
 import time
+from datetime import datetime
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
@@ -48,23 +49,36 @@ from user_profile import (
 from scheduler_service import scheduler_service
 
 # ============================================================================
+
+
 # Config
-# ============================================================================
+# =======
+# Load from config.py — see config.example.py for required fields
+# cp python_service/config.example.py python_service/config.py
 
-MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "")
-if not MINIMAX_API_KEY:
-    raise ValueError("MINIMAX_API_KEY environment variable is required")
+import sys as _sys, os as _os, importlib.util
 
-MINIMAX_BASE_URL = os.getenv("MINIMAX_BASE_URL", "https://api.minimaxi.com/v1")
-LLM_MODEL = os.getenv("LLM_MODEL", "MiniMax-M2.7")
-LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.8"))
-LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "1000"))
-MAX_CONTEXT_TOKENS = int(os.getenv("MAX_CONTEXT_TOKENS", "6000"))
-ALLOWED_ORIGINS = [
-    o.strip()
-    for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
-    if o.strip()
-]
+_cfg_path = _os.path.join(_os.path.dirname(__file__), "config.py")
+if not _os.path.exists(_cfg_path):
+    sys.stderr.write("ERROR: config.py not found!\n")
+    sys.stderr.write("Please copy the template:\n")
+    sys.stderr.write("  cp python_service/config.example.py python_service/config.py\n")
+    sys.stderr.write("Then edit config.py and set MINIMAX_API_KEY\n")
+    _sys.exit(1)
+
+_spec = importlib.util.spec_from_file_location("_cfg_mod", _cfg_path)
+_cfg = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_cfg)
+
+for _k in dir(_cfg):
+    if _k.startswith("_"):
+        continue
+    globals()[_k] = getattr(_cfg, _k)
+
+if not globals().get("MINIMAX_API_KEY", ""):
+    sys.stderr.write("ERROR: MINIMAX_API_KEY is empty!\n")
+    sys.stderr.write("Please edit python_service/config.py and set MINIMAX_API_KEY\n")
+    _sys.exit(1)
 
 openai_client = OpenAI(
     api_key=MINIMAX_API_KEY,
@@ -166,6 +180,7 @@ EMPATHY_RESPONSES = {
 }
 
 SYSTEM_PROMPT = """你是一个温暖、有同理心的情感支持助手。
+当前日期时间：{current_time}
 当前用户情绪状态：{emotion}
 情绪置信度：{emotion_prob:.0%}
 
@@ -252,12 +267,18 @@ def build_prompt(message: str, emotion: str, emotion_prob: float, context: list)
         else:
             history_str += f"助手：{content}\n"
     return SYSTEM_PROMPT.format(
-        emotion=emotion,
+        current_time=_get_current_time(),
+emotion=emotion,
         emotion_prob=emotion_prob * 100,
         history=history_str or "(这是对话的开始)",
         message=message,
     )
 
+
+def _get_current_time() -> str:
+    now = datetime.now()
+    weekdays = ["星期一","星期二","星期三","星期四","星期五","星期六","星期日"]
+    return now.strftime(f"%Y年%m月%d日 {weekdays[now.weekday()]} %H:%M")
 
 def get_empathy_response(emotion: str) -> str:
     responses = EMPATHY_RESPONSES.get(emotion, EMPATHY_RESPONSES["neutral"])
@@ -413,7 +434,8 @@ async def chat(req: ChatRequest):
 
     # Build prompt with full memory context
     system_prompt = SYSTEM_PROMPT.format(
-        emotion=emotion,
+        current_time=_get_current_time(),
+emotion=emotion,
         emotion_prob=emotion_prob * 100,
         history=context_str,
         message=req.message,
@@ -465,7 +487,8 @@ async def chat_stream(req: ChatRequest):
 
     context_str = mem.get_context_for_llm()
     system_prompt = SYSTEM_PROMPT.format(
-        emotion=emotion,
+        current_time=_get_current_time(),
+emotion=emotion,
         emotion_prob=emotion_prob * 100,
         history=context_str,
         message=req.message,

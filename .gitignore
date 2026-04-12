@@ -32,3 +32,16 @@ coverage/
 # Misc
 *.tmp
 *.bak
+
+# Sensitive Keys & Config
+*.key
+*.pem
+*.cert
+config.py
+credentials.json
+secrets.json
+.env.production
+.env.local
+keys/
+.id_rsa*
+*.secret

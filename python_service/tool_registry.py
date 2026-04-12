@@ -411,7 +411,45 @@ def unit_convert(value: float, from_unit: str, to_unit: str) -> float:
     return round(value * factor, 6)
 """,
             ),
-        ]
+                ToolDef(
+                id="web-search",
+                name="web_search",
+                display_name="网络搜索",
+                description="搜索互联网获取最新信息，支持新闻、天气、股票、实事等实时查询。使用中文提问效果最佳",
+                category="ai",
+                icon="🔍",
+                code="""
+import os, requests
+
+def web_search(query: str, max_results: int = 5) -> str:
+    api_key = os.getenv("TAVILY_API_KEY", "")
+    if not api_key:
+        return "错误: TAVILY_API_KEY 未设置"
+    try:
+        resp = requests.post(
+            "https://api.tavily.com/search",
+            json={"api_key": api_key, "query": query, "max_results": max_results, "source": "news"},
+            timeout=10
+        )
+        data = resp.json()
+        results = data.get("results", [])
+        if not results:
+            return "没有找到相关结果"
+        lines = []
+        for i, r in enumerate(results[:max_results], 1):
+            title = r.get("title", "")
+            url = r.get("url", "")
+            snippet = r.get("content", "")[:200]
+            lines.append(f"{i}. {title} - {url}")
+            if snippet:
+                lines.append(f"   {snippet}")
+        return "\n".join(lines)
+    except Exception as e:
+        return "搜索出错: " + str(e)
+""",
+            ),
+
+    ]
 
         for tool in presets:
             tool.is_builtin = True

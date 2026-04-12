@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer } from 'recharts'
-import { Send, Trash2, Plus, MessageCircle, Menu, X, Sun, Moon, Monitor } from 'lucide-react'
-import { apiChatStream, getNickname, setNickname, getSuggestions, deleteMemory } from './api'
+import { Send, Trash2, Plus, MessageCircle, Menu, X, Sun, Moon, Monitor, ChevronDown } from 'lucide-react'
+import { apiChatStream, getNickname, setNickname, getSuggestions } from './api'
 import { useTheme } from './useTheme'
 import type { Message, Session } from './types'
 import { EMOTION_CONFIG } from './types'
@@ -17,10 +17,6 @@ const MAX_SESSIONS = 50
 
 // User identity: 优先从URL参数读取飞书open_id，作为长记忆隔离键
 // 格式: https://your-vercel.app?user_id=ou_xxx
-const USER_ID = (() => {
-  const params = new URLSearchParams(window.location.search)
-  return params.get('user_id') || 'anonymous'
-})()
 
 const EMOTION_VALUES: Record<string, number> = {
   positive: 100, negative: 20, anxious: 40, angry: 15, sad: 30, neutral: 60,
@@ -128,7 +124,6 @@ function EmotionTrendChart({ data }: { data: ReturnType<typeof useEmotionTrend> 
 }
 
 function AdviceCard({ emotion }: { emotion: string }) {
-  const { theme } = useTheme()
   const config = EMOTION_CONFIG[emotion] ?? EMOTION_CONFIG.neutral
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
@@ -138,17 +133,17 @@ function AdviceCard({ emotion }: { emotion: string }) {
   )
 }
 
-function SuggestionChips({ onSelect, suggestions: staticSuggestions }: { onSelect: (text: string) => void; suggestions?: string[] }) {
+function SuggestionChips({ onSelect, suggestions: initSuggestions }: { onSelect: (text: string) => void; suggestions?: string[] }) {
   const { theme } = useTheme()
-  const [dynSuggestions, setDynSuggestions] = useState<string[]>(staticSuggestions || [])
+  const [dynSuggestions, setDynSuggestions] = useState<string[]>(initSuggestions || [])
 
   useEffect(() => {
-    if (dynSuggestions.length === 0 && suggestions?.length) {
-      setDynSuggestions(suggestions)
+    if (dynSuggestions.length === 0 && initSuggestions?.length) {
+      setDynSuggestions(initSuggestions)
     }
-  }, [suggestions])
+  }, [initSuggestions])
 
-  const toShow = dynSuggestions.length > 0 ? dynSuggestions : (staticSuggestions || [])
+  const toShow = dynSuggestions.length > 0 ? dynSuggestions : (initSuggestions || [])
 
   if (toShow.length === 0) return null
 
@@ -166,8 +161,22 @@ function SuggestionChips({ onSelect, suggestions: staticSuggestions }: { onSelec
 
 function MessageBubble({ msg }: { msg: Message }) {
   const { theme } = useTheme()
-  const config = EMOTION_CONFIG[msg.emotion] ?? EMOTION_CONFIG.neutral
   const isUser = msg.role === 'user'
+  const [showThink, setShowThink] = useState(false)
+
+  const raw = msg.content || ''
+  // Strip <think>...</think> tags from display (handle both Chinese and English tags)
+  const thinkMatch = raw.match(/<think>[\s\S]*?<\/think>/)
+  const displayContent = (() => {
+    if (!thinkMatch) return raw
+    const withoutThink = raw.replace(/<think>[\s\S]*?<\/think>/, '').trim()
+    // If only think content so far, show a subtle indicator
+    if (!withoutThink) return null
+    return withoutThink
+  })()
+
+  const isLoading = isUser === false && msg.content === ''
+
   return (
     <motion.div initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }}
       style={{ display: 'flex', flexDirection: isUser ? 'row-reverse' : 'row', alignItems: 'flex-start', gap: '0.75rem' }}>
@@ -175,9 +184,26 @@ function MessageBubble({ msg }: { msg: Message }) {
         {isUser ? '😊' : '🤖'}
       </div>
       <div style={{ maxWidth: '72%' }}>
-        <div style={{ padding: '0.875rem 1.125rem', borderRadius: isUser ? '1rem 1rem 0.25rem 1rem' : '1rem 1rem 1rem 0.25rem', background: isUser ? theme.userBubble : theme.assistantBubble, color: isUser ? theme.userText : theme.assistantText, boxShadow: '0 1px 4px rgba(0,0,0,0.08)', fontSize: '0.9375rem', lineHeight: 1.6 }}>
-          {msg.content}
-        </div>
+        {thinkMatch && !isLoading && (
+          <div style={{ fontSize: '0.75rem', color: theme.textMuted, marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', userSelect: 'none' }} onClick={() => setShowThink(v => !v)}>
+            <ChevronDown size={14} style={{ transform: showThink ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.2s', opacity: 0.7 }} />
+            <span style={{ opacity: 0.7 }}>💭 思考过程</span>
+          </div>
+        )}
+        {thinkMatch && showThink && (
+          <div style={{ fontSize: '0.75rem', color: theme.textMuted, background: theme.surface, border: '1px solid ' + theme.border, borderRadius: '0.5rem', padding: '0.5rem 0.75rem', marginBottom: '0.375rem', fontFamily: 'monospace', whiteSpace: 'pre-wrap', maxHeight: 200, overflowY: 'auto', lineHeight: 1.5 }}>
+            {thinkMatch[0].replace(/<think>\s*/, '').replace(/<\/think>/, '').trim()}
+          </div>
+        )}
+        {isLoading ? (
+          <div style={{ padding: '0.875rem 1.125rem', borderRadius: '1rem 1rem 1rem 0.25rem', background: theme.assistantBubble, boxShadow: '0 1px 4px rgba(0,0,0,0.08)', fontSize: '0.9375rem', color: theme.textMuted, fontStyle: 'italic' }}>
+            思考中...
+          </div>
+        ) : (
+          <div style={{ padding: '0.875rem 1.125rem', borderRadius: isUser ? '1rem 1rem 0.25rem 1rem' : '1rem 1rem 1rem 0.25rem', background: isUser ? theme.userBubble : theme.assistantBubble, color: isUser ? theme.userText : theme.assistantText, boxShadow: '0 1px 4px rgba(0,0,0,0.08)', fontSize: '0.9375rem', lineHeight: 1.6 }}>
+            {displayContent || <span style={{ opacity: 0.5, fontStyle: 'italic' }}>思考中...</span>}
+          </div>
+        )}
         <div style={{ fontSize: '0.75rem', color: theme.textMuted, marginTop: '0.375rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           {msg.role === 'assistant' && <EmotionBadge emotion={msg.emotion} prob={msg.emotionProb} size="sm" />}
           <span>{new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
@@ -239,14 +265,13 @@ export default function App() {
   // 初始化加载昵称和建议
   useEffect(() => {
     getNickname().then(nick => { if (nick) setCACHED_NICK(nick) })
-    getSuggestions(currentEmotion).then(s => { if (s?.length) setSuggestions(s) })
+    getSuggestions('neutral').then(s => { if (s?.length) setSuggestions(s) })
   }, [])
 
   // 情绪变化时重新加载建议
   useEffect(() => {
-    getSuggestions(currentEmotion).then(s => { if (s?.length) setSuggestions(s) })
-  }, [currentEmotion])
-  }, [])
+    getSuggestions('neutral').then(s => { if (s?.length) setSuggestions(s) })
+  }, ['neutral'])
 
   const currentSession = currentSessionId ? sessions[currentSessionId] : null
   const messages = currentSession?.messages ?? []
@@ -268,7 +293,7 @@ export default function App() {
 
     let sessionId = currentSessionId
     if (!sessionId) {
-      sessionId = crypto.randomUUID()
+      sessionId = Date.now().toString(36) + Math.random().toString(36).slice(2)
       setCurrentSessionId(sessionId)
       setSessions(prev => ({
         ...prev,
@@ -277,7 +302,7 @@ export default function App() {
     }
 
     const { emotion, prob } = detectEmotion(text)
-    const userMsg: Message = { id: crypto.randomUUID(), role: 'user', content: text, emotion, emotionProb: prob, timestamp: Date.now() }
+    const userMsg: Message = { id: Date.now().toString(36) + Math.random().toString(36).slice(2), role: 'user', content: text, emotion, emotionProb: prob, timestamp: Date.now() }
 
     // 先插入用户消息
     setSessions(prev => ({
@@ -286,7 +311,7 @@ export default function App() {
     }))
 
     // 创建助手空消息（用于流式增量更新）
-    const assistantId = crypto.randomUUID()
+    const assistantId = Date.now().toString(36) + Math.random().toString(36).slice(2)
     const assistantMsg: Message = { id: assistantId, role: 'assistant', content: '', emotion, emotionProb: prob, timestamp: Date.now() }
     setSessions(prev => ({
       ...prev,
@@ -327,8 +352,8 @@ export default function App() {
     }
 
     // 流式出错
-    const streamError = (errMsg: string) => {
-      setError(errMsg)
+    const streamError = (errMsg: string | Error) => {
+      setError(String(errMsg))
       const fallback = EMOTION_CONFIG[emotion]?.advice || '我在这里，愿意听你说。'
       setSessions(prev => {
         const msgs = prev[sessionId!]?.messages ?? []
@@ -415,8 +440,7 @@ export default function App() {
             const nick = window.prompt('设置你的昵称（留空清除）', CACHED_NICK || '')
             if (nick !== null) {
               setNickname(nick).then(() => {
-                CACHED_NICK = nick || ''
-                setNick(nick || '')
+                setCACHED_NICK(nick || '')
               })
             }
           }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem', fontSize: '0.8rem', color: theme.textMuted, borderRadius: '0.5rem' }}>

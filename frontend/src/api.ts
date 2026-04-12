@@ -73,17 +73,6 @@ function checkUrl() {
   }
 }
 
-function buildBody(sessionId: string, message: string, emotion: string, emotionProb: number, history: import('./types').Message[]) {
-  return {
-    session_id: sessionId,
-    user_id: USER_ID,
-    message,
-    context: history.slice(-6),
-    emotion,
-    emotion_prob: emotionProb,
-  }
-}
-
 export async function apiChat(
   sessionId: string,
   message: string,
@@ -92,7 +81,7 @@ export async function apiChat(
   checkUrl()
   if (!GATEWAY_URL) throw new Error('VITE_GATEWAY_URL not configured')
 
-  const res = await fetch(`${GATEWAY_URL}/api/chat`, {
+  const res = await fetch(`${GATEWAY_URL}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(buildBody(sessionId, message, '', 0.5, history)),
@@ -126,7 +115,7 @@ export async function apiChatStream(
   }
 
   try {
-    const res = await fetch(`${GATEWAY_URL}/api/chat/stream`, {
+    const res = await fetch(`${GATEWAY_URL}/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(buildBody(sessionId, message, emotion, emotionProb, history)),
