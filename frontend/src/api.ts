@@ -13,6 +13,60 @@ const USER_ID = (() => {
   return params.get('user_id') || 'anonymous'
 })()
 
+// 昵称缓存
+let CACHED_NICKNAME = ''
+
+function buildBody(sessionId: string, message: string, emotion: string, emotionProb: number, history: import('./types').Message[]) {
+  return {
+    session_id: sessionId,
+    user_id: USER_ID,
+    message,
+    context: history.slice(-6),
+    emotion,
+    emotion_prob: emotionProb,
+  }
+}
+
+// 获取用户昵称
+export async function getNickname(): Promise<string> {
+  if (!GATEWAY_URL) return ''
+  try {
+    const res = await fetch(`${GATEWAY_URL}/profile/${USER_ID}`)
+    if (!res.ok) return ''
+    const data = await res.json()
+    CACHED_NICKNAME = data.nickname || ''
+    return CACHED_NICKNAME
+  } catch { return '' }
+}
+
+// 更新昵称
+export async function setNickname(nickname: string): Promise<void> {
+  if (!GATEWAY_URL) return
+  await fetch(`${GATEWAY_URL}/profile/${USER_ID}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nickname }),
+  })
+  CACHED_NICKNAME = nickname
+}
+
+// 获取情绪建议问题
+export async function getSuggestions(emotion: string): Promise<string[]> {
+  if (!GATEWAY_URL) return []
+  try {
+    const res = await fetch(`${GATEWAY_URL}/profile/${USER_ID}/suggestions?emotion=${emotion}`)
+    if (!res.ok) return []
+    const data = await res.json()
+    return data.suggestions || []
+  } catch { return [] }
+}
+
+// 删除记忆
+export async function deleteMemory(level: string = 'all'): Promise<void> {
+  if (!GATEWAY_URL) return
+  await fetch(`${GATEWAY_URL}/memory/${USER_ID}?level=${level}`, { method: 'DELETE' })
+}
+
 function checkUrl() {
   if (!GATEWAY_URL) {
     console.error('[EmpathicBot] VITE_GATEWAY_URL is not configured.')

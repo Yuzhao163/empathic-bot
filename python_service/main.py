@@ -30,6 +30,16 @@ from auth import (
     verify_magic_link,
 )
 from tool_registry import registry, ToolDef, MCPServer, SkillDef
+from user_profile import (
+    get_profile,
+    save_profile,
+    update_nickname,
+    update_emotion_profile,
+    delete_memory_for_user,
+    get_human_reply,
+    get_greeting,
+    get_suggestion_prompts,
+)
 
 # ============================================================================
 # Config
@@ -339,7 +349,7 @@ async def chat(req: ChatRequest):
         text = await call_llm(system_prompt, req.message)
     except Exception as e:
         print(f"[LLM Error] {e}")
-        text = get_empathy_response(emotion)
+        text = get_human_reply(emotion, req.user_id)
 
     # Store assistant response in memory
     mem.add_message("assistant", text, emotion)
@@ -395,7 +405,7 @@ async def chat_stream(req: ChatRequest):
                 yield chunk_data
         except Exception as e:
             print(f"[Stream Error] {e}")
-            fallback = get_empathy_response(emotion)
+            fallback = get_human_reply(emotion, req.user_id)
             for char in fallback:
                 yield f"data: {json.dumps({'token': char})}\n\n"
         # Store assistant response in memory after stream ends
@@ -636,6 +646,54 @@ async def auth_me(token: str = None):
 
 
 @app.post("/auth/logout")
+
+# =============================================================================
+# User Profile & Memory Management
+# =============================================================================
+
+
+@app.get("/profile/{user_id}")
+async def get_user_profile(user_id: str):
+    """获取用户画像（含情绪配置）"""
+    profile = get_profile(user_id)
+    from dataclasses import asdict
+    return asdict(profile)
+
+
+@app.patch("/profile/{user_id}")
+async def update_user_profile(user_id: str, req: Request):
+    """更新用户基本信息（昵称/头像/显示名）"""
+    body = await req.json()
+    profile = get_profile(user_id)
+    if "nickname" in body:
+        profile = update_nickname(user_id, body["nickname"])
+    if "avatar" in body:
+        profile.avatar = body["avatar"]
+    save_profile(profile)
+    from dataclasses import asdict
+    return asdict(profile)
+
+
+@app.patch("/profile/{user_id}/emotion")
+async def update_emotion_config(user_id: str, req: Request):
+    """更新情绪配置（风格/模板/昵称等）"""
+    body = await req.json()
+    profile = update_emotion_profile(user_id, body)
+    from dataclasses import asdict
+    return asdict(profile)
+
+
+@app.get("/profile/{user_id}/suggestions")
+async def get_user_suggestions(user_id: str, emotion: str = "neutral"):
+    """获取当前情绪的引导问题建议"""
+    return {"suggestions": get_suggestion_prompts(emotion, user_id)}
+
+
+@app.delete("/memory/{user_id}")
+async def delete_user_memory(user_id: str, level: str = "all"):
+    """删除用户指定层级的记忆和画像"""
+    result = delete_memory_for_user(user_id, level)
+    return result
 async def auth_logout(token: str = None):
     """登出"""
     if token:

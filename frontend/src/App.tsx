@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer } from 'recharts'
 import { Send, Trash2, Plus, MessageCircle, Menu, X, Sun, Moon, Monitor } from 'lucide-react'
-import { apiChatStream } from './api'
+import { apiChatStream, getNickname, setNickname, getSuggestions, deleteMemory } from './api'
 import { useTheme } from './useTheme'
 import type { Message, Session } from './types'
 import { EMOTION_CONFIG } from './types'
@@ -138,18 +138,23 @@ function AdviceCard({ emotion }: { emotion: string }) {
   )
 }
 
-const SUGGESTIONS = [
-  '最近有什么事让你感到开心吗？',
-  '愿意多说一点吗？',
-  '这种情况持续多久了？',
-  '有没有试过什么方法缓解？',
-]
-
-function SuggestionChips({ onSelect }: { onSelect: (text: string) => void }) {
+function SuggestionChips({ onSelect, suggestions: staticSuggestions }: { onSelect: (text: string) => void; suggestions?: string[] }) {
   const { theme } = useTheme()
+  const [dynSuggestions, setDynSuggestions] = useState<string[]>(staticSuggestions || [])
+
+  useEffect(() => {
+    if (dynSuggestions.length === 0 && suggestions?.length) {
+      setDynSuggestions(suggestions)
+    }
+  }, [suggestions])
+
+  const toShow = dynSuggestions.length > 0 ? dynSuggestions : (staticSuggestions || [])
+
+  if (toShow.length === 0) return null
+
   return (
     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
-      {SUGGESTIONS.map(s => (
+      {toShow.map(s => (
         <button key={s} onClick={() => onSelect(s)}
           style={{ padding: '0.375rem 0.75rem', borderRadius: '9999px', border: `1px solid ${theme.border}`, background: theme.surface, color: theme.text, fontSize: '0.8125rem', cursor: 'pointer' }}>
           {s}
@@ -227,7 +232,21 @@ export default function App() {
   const [streaming, setStreaming] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [CACHED_NICK, setCACHED_NICK] = useState('')
+  const [suggestions, setSuggestions] = useState<string[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // 初始化加载昵称和建议
+  useEffect(() => {
+    getNickname().then(nick => { if (nick) setCACHED_NICK(nick) })
+    getSuggestions(currentEmotion).then(s => { if (s?.length) setSuggestions(s) })
+  }, [])
+
+  // 情绪变化时重新加载建议
+  useEffect(() => {
+    getSuggestions(currentEmotion).then(s => { if (s?.length) setSuggestions(s) })
+  }, [currentEmotion])
+  }, [])
 
   const currentSession = currentSessionId ? sessions[currentSessionId] : null
   const messages = currentSession?.messages ?? []
@@ -392,6 +411,17 @@ export default function App() {
               <Trash2 size={20} color={theme.textMuted} />
             </button>
           )}
+          <button onClick={() => {
+            const nick = window.prompt('设置你的昵称（留空清除）', CACHED_NICK || '')
+            if (nick !== null) {
+              setNickname(nick).then(() => {
+                CACHED_NICK = nick || ''
+                setNick(nick || '')
+              })
+            }
+          }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem', fontSize: '0.8rem', color: theme.textMuted, borderRadius: '0.5rem' }}>
+            {(CACHED_NICK || '设置昵称')}
+          </button>
         </header>
 
         <div style={{ padding: '0.75rem 1.5rem', background: theme.trendBg }}>
@@ -406,7 +436,7 @@ export default function App() {
           )}
           {streaming && <TypingIndicator />}
           {!streaming && messages.length > 0 && (
-            <SuggestionChips onSelect={(text) => { setInput(text); }} />
+            <SuggestionChips onSelect={(text) => { setInput(text); }} suggestions={suggestions} />
           )}
           {error && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
