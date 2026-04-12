@@ -40,6 +40,7 @@ from user_profile import (
     get_greeting,
     get_suggestion_prompts,
 )
+from scheduler_service import scheduler_service
 
 # ============================================================================
 # Config
@@ -690,6 +691,97 @@ async def get_user_suggestions(user_id: str, emotion: str = "neutral"):
 
 
 @app.delete("/memory/{user_id}")
+# =============================================================================
+# Scheduled Tasks
+# =============================================================================
+
+
+@app.on_event("startup")
+def start_scheduler():
+    scheduler_service.start()
+
+
+@app.on_event("shutdown")
+def stop_scheduler():
+    scheduler_service.stop()
+
+
+@app.get("/schedules")
+async def list_schedules(user_id: str = None):
+    """列出定时任务"""
+    tasks = scheduler_service.list_tasks(user_id=user_id)
+    return {
+        "tasks": [
+            {
+                "task_id": t.task_id,
+                "task_type": t.task_type,
+                "content": t.content,
+                "trigger_type": t.trigger_type,
+                "trigger_time": t.trigger_time,
+                "cron_expr": t.cron_expr,
+                "interval_seconds": t.interval_seconds,
+                "enabled": t.enabled,
+                "created_at": t.created_at,
+                "next_run": t.next_run,
+                "last_run": t.last_run,
+                "run_count": t.run_count,
+                "metadata": t.metadata,
+            }
+            for t in tasks
+        ]
+    }
+
+
+@app.post("/schedules")
+async def create_schedule(req: Request):
+    """创建定时任务
+    trigger_type: once / cron / interval
+    """
+    body = await req.json()
+    user_id = body.get("user_id", "anonymous")
+    task_type = body.get("task_type", "remind")
+    content = body.get("content", "")
+    trigger_type = body.get("trigger_type", "once")  # once | cron | interval
+    trigger_time = body.get("trigger_time")  # Unix timestamp
+    cron_expr = body.get("cron_expr", "")
+    interval_secs = body.get("interval_seconds", 0)
+    metadata = body.get("metadata", {})
+
+    if not content:
+        raise HTTPException(status_code=400, detail="content required")
+
+    task = scheduler_service.create_task(
+        user_id=user_id,
+        task_type=task_type,
+        content=content,
+        trigger_type=trigger_type,
+        trigger_time=trigger_time,
+        cron_expr=cron_expr,
+        interval_seconds=interval_secs,
+        metadata=metadata,
+    )
+    return {"task_id": task.task_id, "next_run": task.next_run}
+
+
+@app.delete("/schedules/{task_id}")
+async def delete_schedule(task_id: str):
+    ok = scheduler_service.delete_task(task_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"ok": True}
+
+
+@app.patch("/schedules/{task_id}")
+async def update_schedule(task_id: str, req: Request):
+    body = await req.json()
+    enabled = body.get("enabled")
+    if enabled is not None:
+        task = scheduler_service.enable_task(task_id, enabled)
+    else:
+        task = scheduler_service.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"task_id": task.task_id}
 async def delete_user_memory(user_id: str, level: str = "all"):
     """删除用户指定层级的记忆和画像"""
     result = delete_memory_for_user(user_id, level)
