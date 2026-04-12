@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -16,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/redis/go-redis/v9"
+	"github.com/google/uuid"
 )
 
 // ============================================================================
@@ -422,10 +422,30 @@ func newSessionID() string {
 // HTTP Handlers
 // ============================================================================
 
+// ============================================================================
+// Trace ID Middleware
+// ============================================================================
+
+func traceMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		traceID := c.GetHeader("X-Trace-ID")
+		if traceID == "" {
+			traceID = uuid.NewString()
+		}
+		c.Set("trace_id", traceID)
+		c.Writer.Header().Set("X-Trace-ID", traceID)
+		c.Next()
+	}
+}
+
 var store *redisStore
 var scheduler *Scheduler
 
 func main() {
+	lvlStr := getEnv("GATEWAY_LOG_LEVEL", "info")
+	lvl, _ := slog.LevelFromString(lvlStr)
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl})))
+
 	store = newRedisStore()
 	scheduler = NewScheduler()
 	defer scheduler.Shutdown()
@@ -433,6 +453,7 @@ func main() {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
+	r.Use(traceMiddleware())
 	r.Use(corsMiddleware())
 	r.Use(ipRateLimitMiddleware())
 
