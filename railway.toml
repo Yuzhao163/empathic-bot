@@ -1,20 +1,29 @@
 [railway]
 id = "empathic-bot"
-
-[deploy]
 region = "us-east"
-runtime = "image"
 
-# 后端服务（Go gateway）
+# Gateway 服务（编译后的 Go 二进制）
 [[services]]
 name = "gateway"
 path = "gateway"
-startCommand = "go run main.go"
-environmentVariables = { REDIS_URL = "" }
+startCommand = "./gateway"
+healthCheckPath = "/health"
+environmentVariables = {
+  REDIS_URL = "",
+  GATEWAY_LOG_LEVEL = "info",
+  PORT = "8080"
+}
 
-# Healthcheck
-[healthCheck]
-path = "/health"
-
-# 前端（Vercel 单独托管，这里只跑后端）
-# 前端部署到 Vercel，后端/redis/python_service 跑 Railway
+# Python LLM Service
+[[services]]
+name = "python_service"
+path = "python_service"
+startCommand = "python main.py"
+environmentVariables = {
+  MINIMAX_API_KEY = "",
+  MINIMAX_BASE_URL = "https://api.minimaxi.com/v1",
+  LLM_MODEL = "MiniMax-M2.7",
+  LLM_TEMPERATURE = "0.8",
+  LLM_MAX_TOKENS = "1000",
+  MAX_CONTEXT_TOKENS = "6000"
+}

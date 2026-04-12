@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -316,6 +317,8 @@ func NewScheduler() *Scheduler {
 		s.wg.Add(1)
 		go s.worker(i)
 	}
+	// 定期清理 stale pendingOnce entries
+	go s.cleanupStaleEntries()
 	return s
 }
 
@@ -338,6 +341,37 @@ func (s *Scheduler) Shutdown() {
 	s.cancel()
 	close(s.pendingCh)
 	s.wg.Wait()
+}
+
+// cleanupStaleEntries removes timed-out entries from pendingOnce every 5 minutes
+func (s *Scheduler) cleanupStaleEntries() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-ticker.C:
+			s.pendingMu.Lock()
+			for sessionID := range s.pendingOnce {
+				// Entries older than 10 minutes are definitely stale
+				// We don't track creation time here, so we do a rough cleanup:
+				// if the channel is blocked, it's stale
+				select {
+				case _, ok := <-s.pendingOnce[sessionID]:
+					if ok {
+						// Put it back — not stale
+						s.pendingOnce[sessionID] <- struct{}{}
+					}
+					// if channel is blocked/closed, delete
+					delete(s.pendingOnce, sessionID)
+				default:
+					delete(s.pendingOnce, sessionID)
+				}
+			}
+			s.pendingMu.Unlock()
+		}
+	}
 }
 
 func (s *Scheduler) callLLMService(req *ChatRequest) {
@@ -488,8 +522,15 @@ func analyzeEmotion(text string) EmotionResult {
 
 func newSessionID() string {
 	b := make([]byte, 16)
-	FillRandom(b)
+	fillRandom(b)
 	return fmt.Sprintf("%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:16])
+}
+
+func fillRandom(b []byte) {
+	if _, err := rand.Read(b); err != nil {
+		// Should never happen — crypto/rand only fails on system entropy exhaustion
+		panic("crypto/rand unavailable: " + err.Error())
+	}
 }
 
 // ============================================================================

@@ -3,38 +3,48 @@ version: '3.8'
 services:
   redis:
     image: redis:7-alpine
+    container_name: empathic-redis
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
+    restart: unless-stopped
 
   gateway:
     build: ./gateway
+    container_name: empathic-gateway
     ports:
       - "8080:8080"
     environment:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
-      - GATEWAY_LOG_LEVEL=info
+      - GATEWAY_LOG_LEVEL=${GATEWAY_LOG_LEVEL:-info}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
     depends_on:
       redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
 
   python_service:
     build: ./python_service
-    environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - LLM_MODEL=${LLM_MODEL:-gpt-4o}
-
-  java_service:
-    build: ./java_service
+    container_name: empathic-python
     ports:
-      - "8002:8002"
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8002/actuator/health"]
-
-  frontend:
-    build: ./frontend
-    ports:
-      - "3000:3000"
+      - "8001:8001"
     environment:
-      - VITE_GATEWAY_URL=${GATEWAY_URL:-http://localhost:8080}
+      - MINIMAX_API_KEY=${MINIMAX_API_KEY}
+      - MINIMAX_BASE_URL=${MINIMAX_BASE_URL:-https://api.minimaxi.com/v1}
+      - LLM_MODEL=${LLM_MODEL:-MiniMax-M2.7}
+      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.8}
+      - LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-1000}
+      - MAX_CONTEXT_TOKENS=${MAX_CONTEXT_TOKENS:-6000}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+    restart: unless-stopped
+
+volumes:
+  redis_data:
