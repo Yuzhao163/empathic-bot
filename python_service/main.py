@@ -15,6 +15,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from openai import OpenAI
 
+from dataclasses import asdict
+from memory import MemoryManager
+
 # ============================================================================
 # Config
 # ============================================================================
@@ -258,10 +261,13 @@ async def call_llm_stream(prompt: str, message: str):
 
 
 class ChatRequest(BaseModel):
+    session_id: str = ""
     message: str
     context: list = []
     emotion: str = "neutral"
     emotion_prob: float = 0.5
+    # memory control
+    memory_level: str = "auto"  # "short" | "medium" | "long" | "auto"
 
 
 class ChatResponse(BaseModel):
@@ -286,13 +292,44 @@ async def chat(req: ChatRequest):
     if req.message:
         emotion, emotion_prob = detect_emotion(req.message)
 
-    prompt = build_prompt(req.message, emotion, emotion_prob, req.context)
+    # Memory management
+    mem = MemoryManager(session_id=req.session_id or "default")
+
+    # Add user message to memory
+    mem.add_message("user", req.message, emotion)
+
+    # Check if we need to summarize
+    if mem.should_summarize():
+        full_history = mem.get_short_term(limit=MEDIUM_MAX_MESSAGES)
+        def llm_fn(prompt_text):
+            resp = openai_client.chat.completions.create(
+                model=LLM_MODEL,
+                messages=[{"role": "user", "content": prompt_text}],
+                temperature=0.5,
+                max_tokens=MAX_SUMMARY_TOKENS,
+            )
+            return resp.choices[0].message.content
+        mem.summarize_and_evict(full_history, llm_fn)
+
+    # Build context from three memory layers
+    context_str = mem.get_context_for_llm()
+
+    # Build prompt with full memory context
+    system_prompt = SYSTEM_PROMPT.format(
+        emotion=emotion,
+        emotion_prob=emotion_prob * 100,
+        history=context_str,
+        message=req.message,
+    )
 
     try:
-        text = await call_llm(prompt, req.message)
+        text = await call_llm(system_prompt, req.message)
     except Exception as e:
         print(f"[LLM Error] {e}")
         text = get_empathy_response(emotion)
+
+    # Store assistant response in memory
+    mem.add_message("assistant", text, emotion)
 
     advice = EMOTION_LEXICON.get(emotion, EMOTION_LEXICON["neutral"])["advice"]
     return ChatResponse(
@@ -313,18 +350,44 @@ async def chat_stream(req: ChatRequest):
     if req.message:
         emotion, emotion_prob = detect_emotion(req.message)
 
-    prompt = build_prompt(req.message, emotion, emotion_prob, req.context)
+    # Memory management
+    mem = MemoryManager(session_id=req.session_id or "default")
+    mem.add_message("user", req.message, emotion)
+
+    if mem.should_summarize():
+        full_history = mem.get_short_term(limit=MEDIUM_MAX_MESSAGES)
+        def llm_fn(prompt_text):
+            resp = openai_client.chat.completions.create(
+                model=LLM_MODEL,
+                messages=[{"role": "user", "content": prompt_text}],
+                temperature=0.5,
+                max_tokens=MAX_SUMMARY_TOKENS,
+            )
+            return resp.choices[0].message.content
+        mem.summarize_and_evict(full_history, llm_fn)
+
+    context_str = mem.get_context_for_llm()
+    system_prompt = SYSTEM_PROMPT.format(
+        emotion=emotion,
+        emotion_prob=emotion_prob * 100,
+        history=context_str,
+        message=req.message,
+    )
+
+    advice = EMOTION_LEXICON.get(emotion, {})["advice"]
 
     async def stream():
         try:
-            async for chunk_data in call_llm_stream(prompt, req.message):
+            async for chunk_data in call_llm_stream(system_prompt, req.message):
                 yield chunk_data
         except Exception as e:
             print(f"[Stream Error] {e}")
             fallback = get_empathy_response(emotion)
             for char in fallback:
                 yield f"data: {json.dumps({'token': char})}\n\n"
-        yield f"data: {json.dumps({'done': True, 'emotion': emotion, 'advice': EMOTION_LEXICON.get(emotion, {})['advice']})}\n\n"
+        # Store assistant response in memory after stream ends
+        # We accumulate the full response via SSE done signal instead
+        yield f"data: {json.dumps({'done': True, 'emotion': emotion, 'advice': advice})}\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 
@@ -366,6 +429,69 @@ async def analyze_emotion(req: Request):
         "emoji": data["emoji"],
         "advice": data["advice"],
     }
+
+
+@app.get("/memory/{session_id}")
+async def get_memory(session_id: str, level: str = "full"):
+    """
+    查询指定session的记忆状态
+    level: short | medium | long | full
+    """
+    mem = MemoryManager(session_id=session_id)
+    result = {"session_id": session_id}
+
+    if level in ("short", "full"):
+        result["short_term"] = mem.get_short_term()
+        result["short_tokens"] = mem.get_short_term_tokens()
+
+    if level in ("medium", "full"):
+        result["medium_summary"] = mem.get_medium_summary()
+
+    if level in ("long", "full"):
+        result["long_term_facts"] = [asdict(f) for f in mem.get_long_term_facts()]
+
+    return result
+
+
+@app.post("/memory/{session_id}/summarize")
+async def force_summarize(session_id: str):
+    """
+    强制触发中记忆压缩（通常自动触发，也可手动调用）
+    """
+    mem = MemoryManager(session_id=session_id)
+    full_history = mem.get_short_term(limit=MEDIUM_MAX_MESSAGES)
+
+    def llm_fn(prompt_text):
+        resp = openai_client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[{"role": "user", "content": prompt_text}],
+            temperature=0.5,
+            max_tokens=MAX_SUMMARY_TOKENS,
+        )
+        return resp.choices[0].message.content
+
+    summary = mem.summarize_and_evict(full_history, llm_fn)
+    return {"summary": summary}
+
+
+@app.delete("/memory/{session_id}")
+async def delete_memory(session_id: str, level: str = "all"):
+    """
+    删除指定层级的记忆
+    level: short | medium | long | all
+    """
+    mem = MemoryManager(session_id=session_id)
+    if level in ("short", "all"):
+        rdb.delete(f"mem:{session_id}:short")
+    if level in ("medium", "all"):
+        rdb.delete(f"mem:{session_id}:medium")
+    if level in ("long", "all"):
+        rdb.delete(f"mem:{session_id}:long")
+        # 删除文件
+        path = Path(MEMORY_DIR) / f"{mem.user_id}.jsonl"
+        if path.exists():
+            path.unlink()
+    return {"ok": True, "deleted": level}
 
 
 if __name__ == "__main__":

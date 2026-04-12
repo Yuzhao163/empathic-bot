@@ -1,0 +1,20 @@
+{
+  "short_term": {
+    "max_messages": 10,
+    "max_tokens": 3000,
+    "description": "当前对话上下文，保持完整原始状态"
+  },
+  "medium_term": {
+    "max_messages": 50,
+    "summarize_after": 15,
+    "max_summary_tokens": 1500,
+    "description": "会话中期，过长时压缩为摘要"
+  },
+  "long_term": {
+    "storage_dir": "./memory/long_term",
+    "max_facts": 100,
+    "max_fact_tokens": 200,
+    "description": "跨会话持久化：用户画像、关键事实、偏好"
+  },
+  "summarization_prompt": "请将以下对话压缩为一段简洁的摘要，保留关键信息、情绪变化和重要结论。摘要应便于后续快速回顾。\n\n对话内容：\n{history}\n\n摘要："
+}

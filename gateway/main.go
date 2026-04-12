@@ -378,6 +378,7 @@ func (s *Scheduler) callLLMService(req *ChatRequest) {
 	history := store.getMessages(context.Background(), req.SessionID)
 
 	payload := map[string]any{
+		"session_id": req.SessionID,
 		"message": req.Message,
 		"context": history,
 		"emotion": req.Emotion,
@@ -626,6 +627,7 @@ func handleChatStream(c *gin.Context) {
 
 	// Proxy to Python SSE stream
 	body, _ := json.Marshal(map[string]any{
+		"session_id":    req.SessionID,
 		"message":       req.Message,
 		"context":        req.Context,
 		"emotion":       req.Emotion,
