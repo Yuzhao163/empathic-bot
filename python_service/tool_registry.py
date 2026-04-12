@@ -54,9 +54,9 @@ class MCPServer:
     """MCP Server 配置"""
     id: str
     name: str
-    description: str
-    enabled: bool = True
     command: str                  # 启动命令，如 "npx" / "python"
+    description: str = ""          # 描述
+    enabled: bool = True           # 是否启用
     args: list[str] = field(default_factory=list)  # 命令行参数
     env: dict = field(default_factory=dict)        # 环境变量（含密钥）
     url: str = ""                 # HTTP MCP Server URL（可选）
@@ -259,51 +259,7 @@ def calculator(expression: str) -> str:
     except Exception as e:
         return f"计算错误: {e}"
 """,
-            ),
-            ToolDef(
-                id="url-meta",
-                name="fetch_url_meta",
-                display_name="网页元信息",
-                description="抓取URL的标题和描述",
-                category="web",
-                icon="🔗",
-                code="""
-import urllib.request
-
-def fetch_url_meta(url: str) -> dict:
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=5) as r:
-            content = r.read().decode("utf-8", errors="ignore")
-        import re
-        title = re.search(r"<title>(.*?)</title>", content, re.I)
-        desc = re.search(r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']+)["\']', content, re.I)
-        return {"title": title.group(1) if title else "", "description": desc.group(1) if desc else "", "url": url}
-    except Exception as e:
-        return {"error": str(e), "url": url}
-""",
-            ),
-            ToolDef(
-                id="qr-gen",
-                name="generate_qr",
-                display_name="二维码生成",
-                description="将文本或URL生成二维码图片（Base64）",
-                category="utility",
-                icon="📱",
-                code="""
-import qrcode
-import base64
-from io import BytesIO
-
-def generate_qr(text: str, size: int = 300) -> str:
-    img = qrcode.make(text, box_size=10)
-    img = img.resize((size, size))
-    buf = BytesIO()
-    img.save(buf, format="PNG")
-    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
-""",
-            ),
-            ToolDef(
+            ), ToolDef(
                 id="hash",
                 name="text_hash",
                 display_name="文本哈希",

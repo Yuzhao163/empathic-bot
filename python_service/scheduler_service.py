@@ -190,4 +190,4 @@ class SchedulerService:
             idx.pop(task_id, None)
         p.write_text(json.dumps(idx), encoding="utf-8")
 
-scheduler = SchedulerService()
+scheduler_service = SchedulerService()

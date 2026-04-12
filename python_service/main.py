@@ -18,6 +18,7 @@ from openai import OpenAI
 
 from dataclasses import asdict
 from memory import MemoryManager
+import redis
 from auth import (
     register_with_email,
     login_with_email,
@@ -31,6 +32,7 @@ from auth import (
     verify_magic_link,
     get_account_by_email,
     link_anonymous_to_account,
+    issue_session,
 )
 from tool_registry import registry, ToolDef, MCPServer, SkillDef
 from user_profile import (
@@ -67,7 +69,6 @@ ALLOWED_ORIGINS = [
 openai_client = OpenAI(
     api_key=MINIMAX_API_KEY,
     base_url=MINIMAX_BASE_URL,
-    max_connections=100,
 )
 executor = ThreadPoolExecutor(max_workers=20)
 
@@ -192,7 +193,7 @@ def build_prompt(message: str, emotion: str, emotion_prob: float, context: list)
     return SYSTEM_PROMPT.format(
         emotion=emotion,
         emotion_prob=emotion_prob * 100,
-        history=history_str or "（这是对话的开始）",
+        history=history_str or "(这是对话的开始)",
         message=message,
     )
 
@@ -491,7 +492,7 @@ async def get_memory(session_id: str, level: str = "full"):
 @app.post("/memory/{session_id}/summarize")
 async def force_summarize(session_id: str):
     """
-    强制触发中记忆压缩（通常自动触发，也可手动调用）
+    强制触发中记忆压缩(通常自动触发，也可手动调用)
     """
     mem = MemoryManager(session_id=session_id)
     full_history = mem.get_short_term(limit=MEDIUM_MAX_MESSAGES)
@@ -580,7 +581,7 @@ async def auth_login(req: Request):
 
 @app.post("/auth/magic-link")
 async def request_magic_link(req: Request):
-    """请求 Magic Link（发送邮箱）"""
+    """请求 Magic Link(发送邮箱)"""
     body = await req.json()
     email = body.get("email", "").strip()
     if not email:
@@ -619,7 +620,7 @@ async def verify_magic(req: Request):
 
 @app.post("/auth/anonymous")
 async def auth_anonymous(req: Request):
-    """匿名登录（设备 UUID）"""
+    """匿名登录(设备 UUID)"""
     body = await req.json()
     device_uuid = body.get("device_uuid", "")
     if not device_uuid:
@@ -631,7 +632,7 @@ async def auth_anonymous(req: Request):
 
 @app.post("/auth/feishu")
 async def auth_feishu(req: Request):
-    """飞书登录（前端传 open_id）"""
+    """飞书登录(前端传 open_id)"""
     body = await req.json()
     feishu_id = body.get("feishu_open_id", "")
     display_name = body.get("display_name", "")
@@ -666,7 +667,7 @@ async def auth_me(token: str = None):
 
 @app.get("/profile/{user_id}")
 async def get_user_profile(user_id: str):
-    """获取用户画像（含情绪配置）"""
+    """获取用户画像(含情绪配置)"""
     profile = get_profile(user_id)
     from dataclasses import asdict
     return asdict(profile)
@@ -674,7 +675,7 @@ async def get_user_profile(user_id: str):
 
 @app.patch("/profile/{user_id}")
 async def update_user_profile(user_id: str, req: Request):
-    """更新用户基本信息（昵称/头像/显示名）"""
+    """更新用户基本信息(昵称/头像/显示名)"""
     body = await req.json()
     profile = get_profile(user_id)
     if "nickname" in body:
@@ -688,7 +689,7 @@ async def update_user_profile(user_id: str, req: Request):
 
 @app.patch("/profile/{user_id}/emotion")
 async def update_emotion_config(user_id: str, req: Request):
-    """更新情绪配置（风格/模板/昵称等）"""
+    """更新情绪配置(风格/模板/昵称等)"""
     body = await req.json()
     profile = update_emotion_profile(user_id, body)
     from dataclasses import asdict
@@ -852,7 +853,7 @@ async def delete_tool(tool_id: str):
 
 @app.patch("/tools/{tool_id}")
 async def update_tool(tool_id: str, req: Request):
-    """更新工具（启用/禁用/修改配置）"""
+    """更新工具(启用/禁用/修改配置)"""
     tool = registry.get_tool(tool_id)
     if not tool:
         raise HTTPException(status_code=404, detail="Tool not found")
@@ -864,7 +865,7 @@ async def update_tool(tool_id: str, req: Request):
 
 @app.post("/tools/{tool_id}/test")
 async def test_tool(tool_id: str, req: Request):
-    """测试用户工具（用测试参数调用）"""
+    """测试用户工具(用测试参数调用)"""
     body = await req.json()
     params = body.get("params", {})
     try:
