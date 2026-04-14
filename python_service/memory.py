@@ -44,6 +44,8 @@ SHORT_MAX_TOKENS = 3000
 MEDIUM_MAX_MESSAGES = 50
 SUMMARIZE_AFTER = 15
 MAX_SUMMARY_TOKENS = 1500
+LONG_TERM_MEMORY_TTL = 2592000   # 30 days in seconds
+MEMORY_DIR = Path("./memory_data")
 LONG_MAX_FACTS = 100
 
 # ============================================================================

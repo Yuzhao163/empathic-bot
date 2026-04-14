@@ -419,19 +419,22 @@ def unit_convert(value: float, from_unit: str, to_unit: str) -> float:
                 category="ai",
                 icon="🔍",
                 code="""
-import os, requests
+import os, urllib.request, urllib.parse, json
 
 def web_search(query: str, max_results: int = 5) -> str:
     api_key = os.getenv("TAVILY_API_KEY", "")
     if not api_key:
         return "错误: TAVILY_API_KEY 未设置"
     try:
-        resp = requests.post(
+        payload = json.dumps({"query": query, "max_results": max_results, "source": "news"}).encode()
+        req = urllib.request.Request(
             "https://api.tavily.com/search",
-            json={"api_key": api_key, "query": query, "max_results": max_results, "source": "news"},
-            timeout=10
+            data=payload,
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+            method="POST"
         )
-        data = resp.json()
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
         results = data.get("results", [])
         if not results:
             return "没有找到相关结果"
@@ -443,7 +446,7 @@ def web_search(query: str, max_results: int = 5) -> str:
             lines.append(f"{i}. {title} - {url}")
             if snippet:
                 lines.append(f"   {snippet}")
-        return "\n".join(lines)
+        return "\\n".join(lines)
     except Exception as e:
         return "搜索出错: " + str(e)
 """,

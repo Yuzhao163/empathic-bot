@@ -15,7 +15,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 
 from dataclasses import asdict
 from memory import MemoryManager
@@ -80,7 +80,7 @@ if not globals().get("MINIMAX_API_KEY", ""):
     sys.stderr.write("Please edit python_service/config.py and set MINIMAX_API_KEY\n")
     _sys.exit(1)
 
-openai_client = OpenAI(
+async_openai_client = AsyncOpenAI(
     api_key=MINIMAX_API_KEY,
     base_url=MINIMAX_BASE_URL,
 )
@@ -204,10 +204,13 @@ SYSTEM_PROMPT = """你是一个温暖、有同理心的情感支持助手。
 
 def detect_emotion(text: str) -> tuple[str, float]:
     """
-    情绪检测 — 固定优先级顺序，避免 dict 迭代顺序不稳定问题
-    优先级: angry > anxious > negative > sad > positive
+    情绪检测 — 固定优先级顺序 + 否定词处理
     """
     text_lower = text.lower()
+    
+    # 检测否定词
+    negation_words = ["不", "没", "非", "别", "未", "不好", "不开心", "不快", "不快乐", "不高"]
+    has_negation = any(neg in text_lower for neg in negation_words)
     # 固定优先级顺序（覆盖关键词多的放前面）
     priority = [
         ("angry",    PRIORITY_KW.get("angry",    [])),
@@ -219,6 +222,15 @@ def detect_emotion(text: str) -> tuple[str, float]:
     for emotion, words in priority:
         for word in words:
             if word in text_lower:
+                # Handle negation: positive + negation = negative, negative + negation = positive
+                if has_negation:
+                    if emotion == "positive":
+                        return "negative", 0.80
+                    elif emotion == "negative":
+                        return "positive", 0.80
+                # Direct negative word matches (like 无聊, 烦) = negative
+                if emotion == "negative" or word in ["无聊", "烦", "闷"]:
+                    return "negative", 0.80
                 return emotion, EMOTION_LEXICON[emotion]["prob"]
     # fallback: 检查 EMOTION_LEXICON.keywords（短词精确匹配）
     for emotion, data in EMOTION_LEXICON.items():
@@ -535,13 +547,54 @@ async def health():
 
 @app.post("/emotion/analyze")
 async def analyze_emotion(req: Request):
+    """用 MiniMax 模型分析情绪，失败时回退到关键词匹配"""
     body = await req.json()
     text = body.get("text", "")
     if not text:
         raise HTTPException(status_code=400, detail="text is required")
     if len(text) > 2000:
         raise HTTPException(status_code=400, detail="text too long")
-    emotion, prob = detect_emotion(text)
+
+    try:
+        import sys
+        print(f"[DEBUG] Calling model with: {text}", file=sys.stderr)
+        resp = await async_openai_client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[{"role": "user", "content": text}],
+            temperature=0.3,
+            max_tokens=30,
+        )
+        result = resp.choices[0].message.content.strip()
+        import sys
+        print(f"[DEBUG] Model raw: {result[:200]}", file=sys.stderr)
+        
+        # 移除思考标记后匹配
+        content = result.replace("<think>", "").replace("</think>", "").strip()
+        content_lower = content.lower()
+        
+        if "开心" in content_lower and "不" not in content_lower.split("开心")[0][-1]:
+            emotion = "positive"
+            prob = 0.85
+        elif "难过" in content_lower or "负面" in content_lower:
+            emotion = "negative"
+            prob = 0.85
+        elif "焦虑" in content_lower:
+            emotion = "anxious"
+            prob = 0.85
+        elif "愤怒" in content_lower:
+            emotion = "angry"
+            prob = 0.85
+        elif "悲伤" in content_lower or "无聊" in content_lower or "烦" in content_lower or "bored" in content_lower or "sad" in content_lower or "unhappy" in content_lower or "negative" in content_lower:
+            emotion = "negative"
+            prob = 0.85
+        else:
+            emotion, prob = detect_emotion(text)
+    except Exception as ee:
+        import sys, traceback
+        print(f"[DEBUG] Exception: {ee}", file=sys.stderr)
+        traceback.print_exc()
+        emotion, prob = detect_emotion(text)
+    
     data = EMOTION_LEXICON.get(emotion, EMOTION_LEXICON["neutral"])
     return {
         "emotion": emotion,

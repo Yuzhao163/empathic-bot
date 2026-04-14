@@ -106,7 +106,8 @@ export async function apiChatStream(
   history: import('./types').Message[],
   onToken: (token: string) => void,
   onDone: (result: { emotion: string; advice?: string }) => void,
-  onError: (err: Error) => void
+  onError: (err: Error) => void,
+  signal?: AbortSignal
 ) {
   checkUrl()
   if (!GATEWAY_URL) {
@@ -119,6 +120,7 @@ export async function apiChatStream(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(buildBody(sessionId, message, emotion, emotionProb, history)),
+      signal,
     })
 
     if (!res.ok) {
@@ -134,7 +136,7 @@ export async function apiChatStream(
 
     while (true) {
       const { done, value } = await reader.read()
-      if (done) break
+      if (done || signal?.aborted) break
 
       buffer += decoder.decode(value, { stream: true })
       const lines = buffer.split('\n')
@@ -158,6 +160,7 @@ export async function apiChatStream(
       }
     }
   } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') return
     onError(e instanceof Error ? e : new Error(String(e)))
   }
 }
@@ -172,4 +175,23 @@ export async function apiHealth(): Promise<{ healthy: boolean; python: boolean; 
   } catch {
     return { healthy: false, python: false, redis: false }
   }
+}
+
+// 生成工具代码
+export async function generateToolCode(description: string, name?: string): Promise<{ code: string; name: string; description: string }> {
+  checkUrl()
+  if (!GATEWAY_URL) throw new Error('VITE_GATEWAY_URL not configured')
+  
+  const res = await fetch(`${GATEWAY_URL}/tools/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ description, name }),
+  })
+  
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }))
+    throw new Error(err.detail || err.error || `HTTP ${res.status}`)
+  }
+  
+  return res.json()
 }
