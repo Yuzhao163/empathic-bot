@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "updatedAt": "2026-04-20T00:48:00.341Z",
+  "entries": {
+    "memory:memory/2026-04-12.md:1:24": {
+      "key": "memory:memory/2026-04-12.md:1:24",
+      "path": "memory/2026-04-12.md",
+      "startLine": 1,
+      "endLine": 24,
+      "source": "memory",
+      "snippet": "# 2026-04-12 工作日志 ## 项目任务 ### empathic-bot 项目 - 用户发送图片（GitHub 二维码），要求克隆 https://github.com/MeetMax/empathic-bot.git - 尝试克隆失败：该仓库不存在或是 private 仓库 - 需要用户确认正确的 GitHub 地址 ## OpenClaw 配置状态 ### 已完成 - OpenClaw 升级到 2026.4.11 - Feishu (飞书) channel 已配置并正常运行 (WebSocket 模式) - minimax M2.5 模型已设为默认 - 微信插件已安装（版本 2.1.8） - 插件配置已添加 `plugins.allow: [\"openclaw-weixin\"]` ### 进行中 - 微信 channel 未显示在 `openclaw channels status` 中，但插件日志显示正常运行 (`setWeixinRuntime called`) - 可能是 OpenClaw 2026.4.11 与微信插件 2.1.8 之间的兼容性问题 ### 已知问题 - `plugins.entries.minimax-portal-auth` 配置警告（过期配置条目）",
+      "recallCount": 3,
+      "dailyCount": 0,
+      "groundedCount": 0,
+      "totalScore": 0.000004612976951474985,
+      "maxScore": 0.0000018387875508440501,
+      "firstRecalledAt": "2026-04-13T02:15:32.269Z",
+      "lastRecalledAt": "2026-04-20T00:48:00.341Z",
+      "queryHashes": [
+        "a99ec38b8ae5",
+        "4819207f9d4b",
+        "b86dfa957f8f"
+      ],
+      "recallDays": [
+        "2026-04-13",
+        "2026-04-14",
+        "2026-04-20"
+      ],
+      "conceptTags": [
+        "empathic-bot",
+        "2026.4.11",
+        "m2.5",
+        "2.1.8",
+        "plugins.allow",
+        "openclaw-weixin",
+        "工作",
+        "日志"
+      ]
+    }
+  }
+}
